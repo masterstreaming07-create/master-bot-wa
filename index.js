@@ -2,50 +2,63 @@ const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = requi
 const pino = require("pino");
 const express = require("express");
 const QRCode = require("qrcode");
+const fs = require("fs");
+const path = require("path");
 
-let qrActual = null;
-let botConectado = false;
-
-// --- SERVIDOR WEB CON VISOR DE QR ---
+// --- SERVIDOR WEB ANTISUSPENSIÓN Y VISOR QR ---
 const app = express();
 const PORT = process.env.PORT || 3000;
+let qrActual = null;
+let botConectado = false;
 
 app.get("/", async (req, res) => {
     if (botConectado) {
         return res.send(`
-            <div style="font-family: Arial; text-align: center; margin-top: 50px;">
-                <h1 style="color: green;">✅ BOT CONECTADO EXITOSAMENTE</h1>
-                <p>El bot está activo en WhatsApp y funcionando 24/7.</p>
+            <div style="font-family: Arial; text-align: center; margin-top: 50px; background: #0b0c10; color: #66fcf1; padding: 40px; border-radius: 15px;">
+                <h1>⚡ 𝐌𝐀𝐒𝐓𝐄𝐑 𝐒𝐓𝐑𝐄𝐀𝐌𝐈𝐍𝐆 𝐁𝐎𝐓 ⚡</h1>
+                <p style="color: #45a29e;">Servidor Activo 24/7 en la Nube</p>
             </div>
         `);
     }
-
     if (qrActual) {
         try {
             const qrImage = await QRCode.toDataURL(qrActual);
             return res.send(`
-                <div style="font-family: Arial; text-align: center; margin-top: 40px;">
-                    <h2>⚡ ESCANEA CON WHATSAPP BUSINESS ⚡</h2>
-                    <p>Abre WhatsApp Business > Dispositivos vinculados > Vincular un dispositivo</p>
-                    <img src="${qrImage}" style="width: 300px; height: 300px; border: 4px solid #333; border-radius: 10px;" />
-                    <p style="color: gray;">La página se actualizará automáticamente si cambia el código.</p>
+                <div style="font-family: Arial; text-align: center; margin-top: 30px; background: #0b0c10; color: #fff; padding: 20px;">
+                    <h2 style="color: #ff0055;">⚡ VINCULA TU WHATSAPP BUSINESS ⚡</h2>
+                    <img src="${qrImage}" style="width: 280px; height: 280px; border: 4px solid #66fcf1; border-radius: 12px;" />
                     <script>setTimeout(() => location.reload(), 15000);</script>
                 </div>
             `);
         } catch (e) {
-            return res.send("Generando código QR... recarga en unos segundos.");
+            return res.send("Generando código QR...");
         }
     }
-
-    res.send("Iniciando conexión con WhatsApp... recarga en 5 segundos.");
+    res.send("Iniciando servicios de MasterStreaming...");
 });
 
-app.listen(PORT, () => console.log(`Servidor web escuchando en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`Servidor activo en puerto ${PORT}`));
+
+// --- BASE DE DATOS LOCAL JSON ---
+const DB_PATH = path.join(__dirname, "comandos_ventas.json");
+const USERS_PATH = path.join(__dirname, "usuarios_economia.json");
+
+function leerDatos(archivo, defecto = {}) {
+    try {
+        if (!fs.existsSync(archivo)) fs.writeFileSync(archivo, JSON.stringify(defecto, null, 2));
+        return JSON.parse(fs.readFileSync(archivo, "utf-8"));
+    } catch {
+        return defecto;
+    }
+}
+
+function guardarDatos(archivo, datos) {
+    fs.writeFileSync(archivo, JSON.stringify(datos, null, 2));
+}
 
 function obtenerTextoMensaje(m) {
     if (!m || !m.message) return "";
     let msg = m.message;
-
     if (msg.ephemeralMessage) msg = msg.ephemeralMessage.message;
     if (msg.viewOnceMessage) msg = msg.viewOnceMessage.message;
     if (msg.viewOnceMessageV2) msg = msg.viewOnceMessageV2.message;
@@ -73,23 +86,18 @@ async function iniciarBot() {
 
     sock.ev.on("connection.update", (update) => {
         const { connection, lastDisconnect, qr } = update;
-
         if (qr) {
             qrActual = qr;
             botConectado = false;
-            console.log("⚡ Nuevo código QR generado. Disponible en la página web.");
         }
-
         if (connection === "close") {
             botConectado = false;
             const statusCode = (lastDisconnect?.error)?.output?.statusCode;
-            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-            console.log("Conexión cerrada. Reconectando...", shouldReconnect);
-            if (shouldReconnect) iniciarBot();
+            if (statusCode !== DisconnectReason.loggedOut) iniciarBot();
         } else if (connection === "open") {
             botConectado = true;
             qrActual = null;
-            console.log("✅ ¡BOT DE WHATSAPP CONECTADO Y LISTO!");
+            console.log("⚡ ¡MASTER STREAMING BOT OPERATIVO!");
         }
     });
 
@@ -101,70 +109,205 @@ async function iniciarBot() {
 
             const texto = obtenerTextoMensaje(m);
             const chat = m.key.remoteJid;
+            const remitente = m.key.participant || m.key.remoteJid;
 
-            if (!texto || !texto.startsWith(".")) return;
+            if (!texto.startsWith(".")) return;
 
-            console.log(`[COMANDO RECIBIDO]: "${texto}" en ${chat}`);
-
-            const args = texto.slice(1).trim().split(/ +/);
-            const comando = args.shift().toLowerCase();
+            const partes = texto.slice(1).trim().split(/ +/);
+            const comando = partes[0].toLowerCase();
+            const argumento = texto.slice(comando.length + 2).trim();
             const esGrupo = chat.endsWith("@g.us");
 
-            // --- COMANDO .menu ---
-            if (comando === "menu" || comando === "info") {
-                const menu = `🤖 *MASTER BOT WA*\n\n` +
-                             `• *.abrir* : Abre el grupo\n` +
-                             `• *.cerrar* : Cierra el grupo\n` +
-                             `• *.codigo [servicio]* : Entrega de códigos\n` +
-                             `• *.ping* : Probar estado`;
-                await sock.sendMessage(chat, { text: menu }, { quoted: m });
-            }
+            const plantillas = leerDatos(DB_PATH);
+            const economia = leerDatos(USERS_PATH);
 
-            // --- COMANDO .ping ---
-            else if (comando === "ping") {
-                await sock.sendMessage(chat, { text: "🏓 ¡Pong! El bot está respondiendo en tiempo real." }, { quoted: m });
-            }
-
-            // --- COMANDO .cerrar ---
-            else if (comando === "cerrar" || comando === "cerrargrupo") {
-                if (!esGrupo) {
-                    await sock.sendMessage(chat, { text: "⚠️ Este comando solo funciona en grupos." });
+            // ==========================================
+            // ⚡ SISTEMA DINÁMICO .set (VENTAS / STOCK)
+            // ==========================================
+            if (comando.startsWith("set")) {
+                const subComando = comando.slice(3);
+                if (!subComando) {
+                    await sock.sendMessage(chat, { 
+                        text: `⚠️ *USO DEL COMANDO:* \`.set[nombre] [mensaje]\`\n\n_Ejemplo:_ \`.setpago Datos de transferencia BBVA, OXXO...\`` 
+                    }, { quoted: m });
                     return;
                 }
+                if (!argumento) {
+                    await sock.sendMessage(chat, { text: `⚠️ *Ingresa el texto que se guardará en* \`.${subComando}\`` }, { quoted: m });
+                    return;
+                }
+
+                plantillas[subComando] = argumento;
+                guardarDatos(DB_PATH, plantillas);
+                await sock.sendMessage(chat, { 
+                    text: `⚡ *CONFIGURACIÓN EXITOSA* ⚡\n\nEl comando \`.${subComando}\` quedó actualizado correctamente.` 
+                }, { quoted: m });
+                return;
+            }
+
+            if (plantillas[comando]) {
+                await sock.sendMessage(chat, { text: plantillas[comando] }, { quoted: m });
+                return;
+            }
+
+            // ==========================================
+            // 🚀 FICHA Y PEDIDO DE CÓDIGOS MASTER
+            // ==========================================
+            if (comando === "pedircodigo" || comando === "ficha" || comando === "formato") {
+                const ficha = `🌌 ══════════════════════ 🌌\n` +
+                              `     ⚡ *CÓDIGOS MASTER STREAMING* ⚡\n` +
+                              `🌌 ══════════════════════ 🌌\n\n` +
+                              `⚠️ *REGLA IMPORTANTE:* Antes de llenar la ficha, pregunta en el chat si hay atención activa para códigos.\n\n` +
+                              `📋 *COPIA Y RELLENA ESTE FORMATO:* 👇\n\n` +
+                              `*FICHA DE SOLICITUD DE ACCESO*\n` +
+                              `🎮 *PLATAFORMA:* \n` +
+                              `📧 *CORREO:* \n` +
+                              `👤 *PERFIL:* (Nombre del perfil o "Cuenta Completa")\n` +
+                              `📅 *FECHA DE COMPRA:* \n` +
+                              `📸 *FOTO DEL CÓDIGO:* (Adjuntar captura clara de pantalla del televisor o dispositivo)\n\n` +
+                              `⚡ ══════════════════════ ⚡\n` +
+                              `_En breve un administrador o el sistema procesará tu solicitud._`;
+
+                await sock.sendMessage(chat, { text: ficha }, { quoted: m });
+            }
+
+            // ==========================================
+            // 🌌 MENÚ PRINCIPAL INTERACTIVO
+            // ==========================================
+            else if (comando === "menu") {
+                const menuGeneral = `⚡ ══════════════════════ ⚡\n` +
+                                    `   🪐 *𝐌𝐀𝐒𝐓𝐄𝐑 𝐒𝐓𝐑𝐄𝐀𝐌𝐈𝐍𝐆 𝐁𝐎𝐓* 🪐\n` +
+                                    `⚡ ══════════════════════ ⚡\n` +
+                                    `│ 🚀 *Estado:* Online 24/7\n` +
+                                    `│ 🌐 *Servidor:* En la Nube\n` +
+                                    `╰─────────────────────────➤\n\n` +
+                                    `⚡ *MENÚS DEL SISTEMA* ⚡\n` +
+                                    `╭───────────────❖\n` +
+                                    `│ 👑 *.menugrupo*  ➟ Control de grupo\n` +
+                                    `│ 💎 *.menuventas* ➟ Catálogo y stock\n` +
+                                    `│ 🔑 *.pedircodigo* ➟ Formato para solicitar códigos\n` +
+                                    `│ 🎮 *.menufree*   ➟ Juegos y diversión\n` +
+                                    `╰───────────────❖\n\n` +
+                                    `✨ _Para personalizar comandos usa \`.set[nombre] [texto]\`_`;
+                await sock.sendMessage(chat, { text: menuGeneral }, { quoted: m });
+            }
+
+            // ==========================================
+            // 👑 SUBMENÚ DE ADMINISTRACIÓN
+            // ==========================================
+            else if (comando === "menugrupo") {
+                const menuGrupo = `👑 ══════════════════════ 👑\n` +
+                                  `    ⚡ *GESTIÓN DE GRUPOS* ⚡\n` +
+                                  `👑 ══════════════════════ 👑\n\n` +
+                                  `🔒 *.cerrar*  ➟ Cierra el grupo (Solo Admins)\n` +
+                                  `🔓 *.abrir*   ➟ Abre el grupo para todos\n` +
+                                  `📢 *.tagall*  ➟ Menciona a todos los miembros\n` +
+                                  `🏓 *.ping*    ➟ Medidor de latencia en vivo`;
+                await sock.sendMessage(chat, { text: menuGrupo }, { quoted: m });
+            }
+
+            // ==========================================
+            // 💎 SUBMENÚ DE VENTAS
+            // ==========================================
+            else if (comando === "menuventas") {
+                const guardados = Object.keys(plantillas);
+                const lista = guardados.length > 0 
+                    ? guardados.map(c => `│ ⚡ *.${c}*`).join("\n")
+                    : "│ ⚡ _No hay comandos configurados aún_";
+
+                const menuVentas = `💎 ══════════════════════ 💎\n` +
+                                   `   ⚡ *CATÁLOGO DE VENTAS* ⚡\n` +
+                                   `💎 ══════════════════════ 💎\n\n` +
+                                   `╭───────────────❖\n` +
+                                   `${lista}\n` +
+                                   `╰───────────────❖\n\n` +
+                                   `💡 *Configurar comandos rápidos:*\n` +
+                                   `Usa: \`.set[nombre] [texto]\`\n` +
+                                   `_Ejemplo:_ \`.setstock Cuentas disponibles hoy...\``;
+                await sock.sendMessage(chat, { text: menuVentas }, { quoted: m });
+            }
+
+            // ==========================================
+            // 🎮 SUBMENÚ DE JUEGOS Y SOCIAL
+            // ==========================================
+            else if (comando === "menufree") {
+                const menuJuegos = `🎮 ══════════════════════ 🎮\n` +
+                                   `    ⚡ *ZONA DE ENTRETENIMIENTO* ⚡\n` +
+                                   `🎮 ══════════════════════ 🎮\n\n` +
+                                   `│ 💼 *.work*   ➟ Gana monedas virtuales\n` +
+                                   `│ 💰 *.money*  ➟ Consulta tu billetera\n` +
+                                   `│ 📡 *.doxeo*  ➟ Simulación de rastreo cibernético\n` +
+                                   `│ 💘 *.ship*   ➟ Calcula compatibilidad de pareja\n` +
+                                   `│ ✨ *.piropo* ➟ Envía una frase al azar`;
+                await sock.sendMessage(chat, { text: menuJuegos }, { quoted: m });
+            }
+
+            // ==========================================
+            // ⚡ ACCIONES DE GRUPO
+            // ==========================================
+            else if (comando === "cerrar" || comando === "cerrargrupo") {
+                if (!esGrupo) return;
                 try {
                     await sock.groupSettingUpdate(chat, "announcement");
-                    await sock.sendMessage(chat, { text: "🔒 *Grupo cerrado.* Solo administradores pueden enviar mensajes." });
-                } catch (err) {
-                    console.error("Error al cerrar grupo:", err);
-                    await sock.sendMessage(chat, { text: "❌ Error: Asegúrate de que el bot sea administrador del grupo." });
+                    await sock.sendMessage(chat, { text: "🔒⚡ *GRUPO CERRADO POR ADMINISTRACIÓN* ⚡🔒\n\n_En este momento solo administradores pueden enviar mensajes._" });
+                } catch {
+                    await sock.sendMessage(chat, { text: "❌ Error: Verifica que el bot sea administrador." }, { quoted: m });
                 }
             }
 
-            // --- COMANDO .abrir ---
             else if (comando === "abrir" || comando === "abrirgrupo") {
-                if (!esGrupo) {
-                    await sock.sendMessage(chat, { text: "⚠️ Este comando solo funciona en grupos." });
-                    return;
-                }
+                if (!esGrupo) return;
                 try {
                     await sock.groupSettingUpdate(chat, "not_announcement");
-                    await sock.sendMessage(chat, { text: "🔓 *Grupo abierto.* Todos los miembros pueden participar." });
-                } catch (err) {
-                    console.error("Error al abrir grupo:", err);
-                    await sock.sendMessage(chat, { text: "❌ Error: Asegúrate de que el bot sea administrador del grupo." });
+                    await sock.sendMessage(chat, { text: "🔓⚡ *GRUPO ABIERTO* ⚡🔓\n\n_Todos los miembros pueden escribir y participar nuevamente._" });
+                } catch {
+                    await sock.sendMessage(chat, { text: "❌ Error: Verifica que el bot sea administrador." }, { quoted: m });
                 }
             }
 
-            // --- COMANDO .codigo ---
-            else if (comando === "codigo") {
-                const servicio = args[0] ? args[0].toUpperCase() : "GENERAL";
-                await sock.sendMessage(chat, { 
-                    text: `🔑 *Sistema de Códigos (${servicio})*\n\nSolicitud en proceso...` 
-                });
+            else if (comando === "ping") {
+                await sock.sendMessage(chat, { text: "⚡🚀 *PONG!* Sistema MasterStreaming respondiendo al 100%." }, { quoted: m });
+            }
+
+            else if (comando === "tagall" || comando === "todos") {
+                if (!esGrupo) return;
+                const metadata = await sock.groupMetadata(chat);
+                const participantes = metadata.participants.map(p => p.id);
+                let mensajeTag = `⚡📢 *LLAMADO GENERAL MASTER STREAMING* 📢⚡\n\n${argumento ? `📝 *Nota:* ${argumento}\n\n` : ""}`;
+                for (let p of participantes) {
+                    mensajeTag += `@${p.split("@")[0]} `;
+                }
+                await sock.sendMessage(chat, { text: mensajeTag, mentions: participantes });
+            }
+
+            // ==========================================
+            // 💼 ECONOMÍA Y JUEGOS
+            // ==========================================
+            else if (comando === "work" || comando === "chambear") {
+                if (!economia[remitente]) economia[remitente] = 0;
+                const recompensa = Math.floor(Math.random() * 300) + 100;
+                economia[remitente] += recompensa;
+                guardarDatos(USERS_PATH, economia);
+                await sock.sendMessage(chat, { text: `💼⚡ *JORNADA COMPLETADA* ⚡💼\n\nGanaste: *$${recompensa} créditos Master*.\nSaldo total: *$${economia[remitente]} créditos*.` }, { quoted: m });
+            }
+
+            else if (comando === "money" || comando === "cartera") {
+                const saldo = economia[remitente] || 0;
+                await sock.sendMessage(chat, { text: `💰⚡ *BILLETERA VIRTUAL* ⚡💰\n\nTu saldo acumulado es de: *$${saldo} créditos Master*.` }, { quoted: m });
+            }
+
+            else if (comando === "doxeo") {
+                const ipFalsa = `${Math.floor(Math.random()*190)+40}.${Math.floor(Math.random()*255)}.${Math.floor(Math.random()*255)}.${Math.floor(Math.random()*255)}`;
+                const doxeoText = `🛰️⚡ *RASTREO SATELITAL INICIADO...* ⚡🛰️\n\n` +
+                                  `🌐 *IP:* ${ipFalsa}\n` +
+                                  `📡 *Servidor:* Master-CDN Node\n` +
+                                  `📍 *Región:* Sector de Enlace Seguro\n` +
+                                  `🛡️ *Estatus:* Dispositivo Localizado con Éxito.`;
+                await sock.sendMessage(chat, { text: doxeoText }, { quoted: m });
             }
 
         } catch (error) {
-            console.error("Error procesando mensaje:", error);
+            console.error("Error en procesamiento:", error);
         }
     });
 }
