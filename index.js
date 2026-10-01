@@ -11,7 +11,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // URL de tu aplicación web de Google Apps Script (/exec)
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw0TvqX35X2S7LBfVj5lUoMeY_R7abYjjBSahCI2nK98QXlPCqxtFhigG8HR7NZ6JGK/exec";
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwsfiLlP7ot1DSHiyLfBdXEMI_6sbt9fD0MXxynwGqPG-HDZPpTLiWffxzrFFLP5Nrl/exec";
 
 // Archivo local para guardar comandos personalizados y estado
 const DB_PATH = "./auth_session/database.json";
