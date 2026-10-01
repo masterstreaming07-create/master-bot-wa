@@ -2,6 +2,7 @@ const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = requi
 const pino = require("pino");
 const express = require("express");
 const QRCode = require("qrcode");
+const axios = require("axios");
 const fs = require("fs");
 const path = require("path");
 
@@ -10,6 +11,9 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 let qrActual = null;
 let botConectado = false;
+
+// URL DE TU IMPLEMENTACIÓN EN GOOGLE APPS SCRIPT
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw0TvqX35X2S7LBfVj5lUoMeY_R7abYjjBSahCI2nK98QXlPCqxtFhigG8HR7NZ6JGK/exec";
 
 app.get("/", async (req, res) => {
     if (botConectado) {
@@ -151,9 +155,50 @@ async function iniciarBot() {
             }
 
             // ==========================================
+            // 🔑 CONSULTA DIRECTA AL GOOGLE SHEETS (.codigo / .cuenta)
+            // ==========================================
+            if (comando === "codigo" || comando === "cuenta" || comando === "cod") {
+                if (!argumento) {
+                    await sock.sendMessage(chat, { 
+                        text: `⚠️ *Debes ingresar el correo a consultar.*\n\n_Ejemplo:_ \`.codigo sidelperezoso@zohomail.com\`` 
+                    }, { quoted: m });
+                    return;
+                }
+
+                await sock.sendMessage(chat, { text: `🔍 *Consultando base de datos para:* \`${argumento}\`...` }, { quoted: m });
+
+                try {
+                    const res = await axios.get(`${SCRIPT_URL}?correo=${encodeURIComponent(argumento)}`, { timeout: 15000 });
+                    const datos = res.data;
+
+                    if (datos.status === "success") {
+                        const respuestaExito = `🌌 ══════════════════════ 🌌\n` +
+                                               `   ⚡ *DATOS DE CUENTA MASTER* ⚡\n` +
+                                               `🌌 ══════════════════════ 🌌\n\n` +
+                                               `📺 *Plataforma:* ${datos.plataforma}\n` +
+                                               `📧 *Correo:* ${datos.correo}\n` +
+                                               `📦 *Tipo:* ${datos.tipoVenta}\n` +
+                                               `📅 *Vence:* ${datos.vence}\n` +
+                                               `🔑 *Pines Asignados:* ${datos.pines}\n\n` +
+                                               `⚡ ══════════════════════ ⚡`;
+                        await sock.sendMessage(chat, { text: respuestaExito }, { quoted: m });
+                    } else {
+                        await sock.sendMessage(chat, { 
+                            text: `❌ *No encontrado:* ${datos.mensaje || "El correo no está registrado en el inventario."}` 
+                        }, { quoted: m });
+                    }
+                } catch (err) {
+                    console.error("Error al consultar Apps Script:", err.message);
+                    await sock.sendMessage(chat, { 
+                        text: `❌ *Error al conectar con la hoja de cálculo.* Verifica que la Web App esté implementada correctamente.` 
+                    }, { quoted: m });
+                }
+            }
+
+            // ==========================================
             // 🚀 FICHA Y PEDIDO DE CÓDIGOS MASTER
             // ==========================================
-            if (comando === "pedircodigo" || comando === "ficha" || comando === "formato") {
+            else if (comando === "pedircodigo" || comando === "ficha" || comando === "formato") {
                 const ficha = `🌌 ══════════════════════ 🌌\n` +
                               `     ⚡ *CÓDIGOS MASTER STREAMING* ⚡\n` +
                               `🌌 ══════════════════════ 🌌\n\n` +
@@ -185,7 +230,8 @@ async function iniciarBot() {
                                     `╭───────────────❖\n` +
                                     `│ 👑 *.menugrupo*  ➟ Control de grupo\n` +
                                     `│ 💎 *.menuventas* ➟ Catálogo y stock\n` +
-                                    `│ 🔑 *.pedircodigo* ➟ Formato para solicitar códigos\n` +
+                                    `│ 🔑 *.codigo [correo]* ➟ Consultar cuenta en Excel\n` +
+                                    `│ 📋 *.pedircodigo* ➟ Formato para solicitar códigos\n` +
                                     `│ 🎮 *.menufree*   ➟ Juegos y diversión\n` +
                                     `╰───────────────❖\n\n` +
                                     `✨ _Para personalizar comandos usa \`.set[nombre] [texto]\`_`;
