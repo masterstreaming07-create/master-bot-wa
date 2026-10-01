@@ -1,4 +1,5 @@
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require("@whiskeysockets/baileys");
+const qrcode = require("qrcode-terminal");
 const pino = require("pino");
 const express = require("express");
 
@@ -7,8 +8,6 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 app.get("/", (req, res) => res.send("Bot Master WA Activo 24/7"));
 app.listen(PORT, () => console.log(`Servidor web escuchando en puerto ${PORT}`));
-
-const NUMERO_BOT = "56996844379";
 
 function obtenerTextoMensaje(m) {
     if (!m || !m.message) return "";
@@ -34,26 +33,22 @@ async function iniciarBot() {
     const sock = makeWASocket({
         auth: state,
         logger: pino({ level: "silent" }),
-        printQRInTerminal: true
+        printQRInTerminal: false
     });
 
     sock.ev.on("creds.update", saveCreds);
 
-    if (!sock.authState.creds.registered) {
-        setTimeout(async () => {
-            try {
-                const code = await sock.requestPairingCode(NUMERO_BOT);
-                console.log("\n==========================================");
-                console.log(`🔑 TU CÓDIGO DE VINCULACIÓN ES: ${code}`);
-                console.log("==========================================\n");
-            } catch (err) {
-                console.error("Error solicitando código:", err);
-            }
-        }, 4000);
-    }
-
     sock.ev.on("connection.update", (update) => {
-        const { connection, lastDisconnect } = update;
+        const { connection, lastDisconnect, qr } = update;
+
+        // Mostrar QR en consola
+        if (qr) {
+            console.log("\n=================================");
+            console.log("⚡ ESCANEA ESTE CÓDIGO QR ⚡");
+            console.log("=================================\n");
+            qrcode.generate(qr, { small: true });
+        }
+
         if (connection === "close") {
             const shouldReconnect = (lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
             console.log("Conexión cerrada. Reconectando...", shouldReconnect);
