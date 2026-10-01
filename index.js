@@ -1,21 +1,22 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, delay } = require("@whiskeysockets/baileys");
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require("@whiskeysockets/baileys");
 const pino = require("pino");
 const express = require("express");
 
-// --- SERVIDOR WEB ANTISUSPENSION ---
+// --- SERVIDOR WEB ANTISUSPENSION (Para Render) ---
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.get("/", (req, res) => res.send("Bot Master WA Activo 24/7"));
 app.listen(PORT, () => console.log(`Servidor web escuchando en puerto ${PORT}`));
 
-// NÚMERO DE TELÉFONO DEL BOT (Para recibir el código de vinculación)
-// Pon tu número completo con código de país SIN espacios, guiones ni signo '+'
-// Ejemplo México: 521XXXXXXXXXX o 52XXXXXXXXXX
 const NUMERO_BOT = "56996844379";
 
-// Números de administradores autorizados para .abrir y .cerrar
+// Agrega aquí los números de administradores (tu número personal, sin signo +)
+// Si tu número personal es de México, incluye ambas variantes (con 1 y sin 1) por compatibilidad
 const ADMINS = [
     "56996844379@s.whatsapp.net"
+    // Ejemplo para agregar tu número personal:
+    // "521777XXXXXXX@s.whatsapp.net",
+    // "52777XXXXXXX@s.whatsapp.net"
 ];
 
 async function iniciarBot() {
@@ -24,12 +25,11 @@ async function iniciarBot() {
     const sock = makeWASocket({
         auth: state,
         logger: pino({ level: "silent" }),
-        printQRInTerminal: false // Desactivamos el QR deforme
+        printQRInTerminal: false
     });
 
     sock.ev.on("creds.update", saveCreds);
 
-    // Si aún no está vinculado, solicitar código de emparejamiento (Pairing Code)
     if (!sock.authState.creds.registered) {
         setTimeout(async () => {
             try {
@@ -57,56 +57,83 @@ async function iniciarBot() {
         }
     });
 
-    sock.ev.on("messages.upsert", async ({ messages }) => {
+    // Escuchar mensajes entrantes con extracción completa de texto
+    sock.ev.on("messages.upsert", async ({ messages, type }) => {
+        if (type !== "notify") return;
         const m = messages[0];
         if (!m.message || m.key.fromMe) return;
 
         const chat = m.key.remoteJid;
         const remitente = m.key.participant || m.key.remoteJid;
-        const texto = m.message.conversation || m.message.extendedTextMessage?.text || "";
 
-        if (!texto.startsWith(".")) return;
+        // Extraer texto contemplando todas las variantes de Baileys
+        const msg = m.message;
+        const texto = (
+            msg.conversation ||
+            msg.extendedTextMessage?.text ||
+            msg.imageMessage?.caption ||
+            msg.videoMessage?.caption ||
+            ""
+        ).trim();
+
+        // Registro en logs para verificar que el bot lee el chat
+        if (texto.startsWith(".")) {
+            console.log(`[COMANDO DETECTADO]: "${texto}" de ${remitente}`);
+        } else {
+            return;
+        }
 
         const args = texto.slice(1).trim().split(/ +/);
         const comando = args.shift().toLowerCase();
         const esGrupo = chat.endsWith("@g.us");
 
-        // .cerrar
+        // --- COMANDO .cerrar ---
         if (comando === "cerrar" || comando === "cerrargrupo") {
-            if (!esGrupo) return;
+            if (!esGrupo) {
+                await sock.sendMessage(chat, { text: "⚠️ Este comando solo funciona en grupos." }, { quoted: m });
+                return;
+            }
+
             try {
                 await sock.groupSettingUpdate(chat, "announcement");
                 await sock.sendMessage(chat, { text: "🔒 *Grupo cerrado.* Solo administradores pueden enviar mensajes." });
             } catch (err) {
-                await sock.sendMessage(chat, { text: "❌ Error: Verifica que el bot sea admin." });
+                console.error("Error al cerrar grupo:", err);
+                await sock.sendMessage(chat, { text: "❌ Error: Verifica que el bot tenga permisos de administrador en el grupo." }, { quoted: m });
             }
         }
 
-        // .abrir
+        // --- COMANDO .abrir ---
         else if (comando === "abrir" || comando === "abrirgrupo") {
-            if (!esGrupo) return;
+            if (!esGrupo) {
+                await sock.sendMessage(chat, { text: "⚠️ Este comando solo funciona en grupos." }, { quoted: m });
+                return;
+            }
+
             try {
                 await sock.groupSettingUpdate(chat, "not_announcement");
-                await sock.sendMessage(chat, { text: "🔓 *Grupo abierto.* Todos pueden participar." });
+                await sock.sendMessage(chat, { text: "🔓 *Grupo abierto.* Todos los miembros pueden participar." });
             } catch (err) {
-                await sock.sendMessage(chat, { text: "❌ Error: Verifica que el bot sea admin." });
+                console.error("Error al abrir grupo:", err);
+                await sock.sendMessage(chat, { text: "❌ Error: Verifica que el bot tenga permisos de administrador en el grupo." }, { quoted: m });
             }
         }
 
-        // .codigo
+        // --- COMANDO .codigo ---
         else if (comando === "codigo") {
             const servicio = args[0] ? args[0].toUpperCase() : "GENERAL";
             await sock.sendMessage(chat, { 
-                text: `🔑 *Sistema de Códigos (${servicio})*\n\nSolicitud en proceso...` 
+                text: `🔑 *Sistema de Códigos (${servicio})*\n\nSolicitud recibida correctamente. Procesando...` 
             }, { quoted: m });
         }
 
-        // .menu o .info
+        // --- COMANDO .menu O .info ---
         else if (comando === "menu" || comando === "info") {
-            const menu = `🤖 *MASTER BOT*\n\n` +
-                         `📌 *.abrir* - Abrir grupo\n` +
-                         `📌 *.cerrar* - Cerrar grupo\n` +
-                         `📌 *.codigo [servicio]* - Consulta de códigos`;
+            const menu = `🤖 *MASTER BOT WA*\n\n` +
+                         `📌 *.abrir* - Abre el grupo\n` +
+                         `📌 *.cerrar* - Cierra el grupo\n` +
+                         `📌 *.codigo [servicio]* - Consulta de códigos\n` +
+                         `📌 *.menu* - Ver este menú`;
             await sock.sendMessage(chat, { text: menu }, { quoted: m });
         }
     });
