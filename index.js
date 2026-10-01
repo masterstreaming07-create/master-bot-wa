@@ -1,13 +1,14 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require("@whiskeysockets/baileys");
-const qrcode = require("qrcode-terminal");
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, delay } = require("@whiskeysockets/baileys");
 const pino = require("pino");
 const express = require("express");
 
-// Servidor web para mantenerlo vivo en Render
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.get("/", (req, res) => res.send("Bot Master WA Activo 24/7"));
 app.listen(PORT, () => console.log(`Servidor web escuchando en puerto ${PORT}`));
+
+// Número sin símbolos ni espacios
+const NUMERO_BOT = "56996844379";
 
 function obtenerTextoMensaje(m) {
     if (!m || !m.message) return "";
@@ -38,19 +39,26 @@ async function iniciarBot() {
 
     sock.ev.on("creds.update", saveCreds);
 
-    sock.ev.on("connection.update", (update) => {
-        const { connection, lastDisconnect, qr } = update;
+    // Solicitar Pairing Code si no hay credenciales registradas
+    if (!sock.authState.creds.registered) {
+        setTimeout(async () => {
+            try {
+                const code = await sock.requestPairingCode(NUMERO_BOT);
+                console.log("\n==========================================");
+                console.log(`🔑 TU CÓDIGO DE VINCULACIÓN ES: ${code}`);
+                console.log("==========================================\n");
+            } catch (err) {
+                console.error("Error solicitando código:", err);
+            }
+        }, 6000);
+    }
 
-        // Mostrar QR en consola
-        if (qr) {
-            console.log("\n=================================");
-            console.log("⚡ ESCANEA ESTE CÓDIGO QR ⚡");
-            console.log("=================================\n");
-            qrcode.generate(qr, { small: true });
-        }
+    sock.ev.on("connection.update", (update) => {
+        const { connection, lastDisconnect } = update;
 
         if (connection === "close") {
-            const shouldReconnect = (lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
+            const statusCode = (lastDisconnect?.error)?.output?.statusCode;
+            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
             console.log("Conexión cerrada. Reconectando...", shouldReconnect);
             if (shouldReconnect) iniciarBot();
         } else if (connection === "open") {
@@ -62,10 +70,7 @@ async function iniciarBot() {
         try {
             if (!chatUpdate.messages) return;
             const m = chatUpdate.messages[0];
-            if (!m.message) return;
-
-            // Ignorar mensajes enviados por el bot para no ciclarse
-            if (m.key.fromMe) return;
+            if (!m.message || m.key.fromMe) return;
 
             const texto = obtenerTextoMensaje(m);
             const chat = m.key.remoteJid;
@@ -78,7 +83,6 @@ async function iniciarBot() {
             const comando = args.shift().toLowerCase();
             const esGrupo = chat.endsWith("@g.us");
 
-            // --- COMANDO .menu ---
             if (comando === "menu" || comando === "info") {
                 const menu = `🤖 *MASTER BOT WA*\n\n` +
                              `• *.abrir* : Abre el grupo\n` +
@@ -88,12 +92,10 @@ async function iniciarBot() {
                 await sock.sendMessage(chat, { text: menu }, { quoted: m });
             }
 
-            // --- COMANDO .ping ---
             else if (comando === "ping") {
                 await sock.sendMessage(chat, { text: "🏓 ¡Pong! El bot está respondiendo en tiempo real." }, { quoted: m });
             }
 
-            // --- COMANDO .cerrar ---
             else if (comando === "cerrar" || comando === "cerrargrupo") {
                 if (!esGrupo) {
                     await sock.sendMessage(chat, { text: "⚠️ Este comando solo funciona en grupos." });
@@ -103,12 +105,10 @@ async function iniciarBot() {
                     await sock.groupSettingUpdate(chat, "announcement");
                     await sock.sendMessage(chat, { text: "🔒 *Grupo cerrado.* Solo administradores pueden enviar mensajes." });
                 } catch (err) {
-                    console.error("Error al cerrar grupo:", err);
                     await sock.sendMessage(chat, { text: "❌ Error: Verifica que el bot sea administrador del grupo." });
                 }
             }
 
-            // --- COMANDO .abrir ---
             else if (comando === "abrir" || comando === "abrirgrupo") {
                 if (!esGrupo) {
                     await sock.sendMessage(chat, { text: "⚠️ Este comando solo funciona en grupos." });
@@ -118,12 +118,10 @@ async function iniciarBot() {
                     await sock.groupSettingUpdate(chat, "not_announcement");
                     await sock.sendMessage(chat, { text: "🔓 *Grupo abierto.* Todos los miembros pueden participar." });
                 } catch (err) {
-                    console.error("Error al abrir grupo:", err);
                     await sock.sendMessage(chat, { text: "❌ Error: Verifica que el bot sea administrador del grupo." });
                 }
             }
 
-            // --- COMANDO .codigo ---
             else if (comando === "codigo") {
                 const servicio = args[0] ? args[0].toUpperCase() : "GENERAL";
                 await sock.sendMessage(chat, { 
