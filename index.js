@@ -9,8 +9,8 @@ const QRCode = require("qrcode");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// PEGA AQUÍ LA URL DE TU APLICACIÓN WEB DE GOOGLE APPS SCRIPT (la que termina en /exec)
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw0TvqX35X2S7LBfVj5lUoMeY_R7abYjjBSahCI2nK98QXlPCqxtFhigG8HR7NZ6JGK/exec";
+// URL de tu aplicación web de Google Apps Script
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxhD9gsq_s9jlLV1Qafccfknuan3J3mzoIe6GzYS-KVWJNZbUiR869zhbTqJDEPD-CsOw/exec";
 
 let qrActual = null;
 let botConectado = false;
@@ -145,14 +145,14 @@ async function iniciarBot() {
             // --- COMANDO .cerrar ---
             else if (comando === "cerrar" || comando === "cerrargrupo") {
                 if (!esGrupo) {
-                    await sock.sendMessage(chat, { text: "⚠️ Este comando solo funciona en grupos." }, { quoted: m });
+                    await sock.sendMessage(chat, { text: "⚠️ Este comando solo funciona en grupos." });
                     return;
                 }
                 try {
                     await sock.groupSettingUpdate(chat, "announcement");
                     await sock.sendMessage(chat, { text: "🔒 *Grupo cerrado.* Solo administradores pueden enviar mensajes." });
                 } catch (err) {
-                    await sock.sendMessage(chat, { text: "❌ Error: Verifica que el bot sea administrador del grupo." }, { quoted: m });
+                    await sock.sendMessage(chat, { text: "❌ Error: Verifica que el bot sea administrador del grupo." });
                 }
             }
 
@@ -164,51 +164,59 @@ async function iniciarBot() {
                 }
                 try {
                     await sock.groupSettingUpdate(chat, "not_announcement");
-                    await sock.sendMessage(chat, { text: "🔓 *Grupo abierto.* Todos los miembros pueden escribir." });
+                    await sock.sendMessage(chat, { text: "🔓 *Grupo abierto.* Todos los miembros pueden participar." });
                 } catch (err) {
-                    await sock.sendMessage(chat, { text: "❌ Error: Verifica que el bot sea administrador del grupo." }, { quoted: m });
+                    await sock.sendMessage(chat, { text: "❌ Error: Verifica que el bot sea administrador del grupo." });
                 }
             }
 
-            // --- COMANDO .codigo (AUTOMÁTICO VÍA APPS SCRIPT) ---
+            // --- COMANDO .codigo (CONSULTA A GOOGLE APPS SCRIPT) ---
             else if (comando === "codigo") {
                 const correo = args[0] ? args[0].trim().toLowerCase() : "";
 
                 if (!correo || !correo.includes("@")) {
                     await sock.sendMessage(chat, { 
-                        text: "⚠️ *Formato incorrecto.*\nDebes escribir el comando junto al correo:\n\n_Ejemplo:_ `.codigo sidelperezoso@zohomail.com`" 
+                        text: "⚠️ *Formato incorrecto.*\nEscribe el comando seguido del correo:\n\n_Ejemplo:_ `.codigo sidelperezoso@zohomail.com`" 
                     }, { quoted: m });
                     return;
                 }
 
-                await sock.sendMessage(chat, { text: `🔍 *Buscando código para:* \`${correo}\`...` }, { quoted: m });
+                await sock.sendMessage(chat, { text: `🔍 Consultando sistemas para: \`${correo}\`...` }, { quoted: m });
 
                 try {
                     const urlConsulta = `${APPS_SCRIPT_URL}?correo=${encodeURIComponent(correo)}`;
                     const response = await fetch(urlConsulta);
                     const data = await response.json();
 
-                    if (data && data.encontrado) {
-                        const respuestaExito = `╭───  *CÓDIGO ENCONTRADO*  ───╮\n` +
-                                               `│ 🎬 *Servicio:* ${data.plataforma || "Streaming"}\n` +
-                                               `│ 📧 *Cuenta:* ${correo}\n` +
-                                               `╰────────────────────────╯\n\n` +
-                                               `🔑 *TU CÓDIGO:* \`\`\`${data.codigo}\`\`\`\n\n` +
-                                               `⏰ *Válido por 15 minutos.*\n` +
-                                               `_Ingrésalo en tu pantalla de inmediato._`;
+                    if (data && data.ok) {
+                        let respuesta = `╭───  *CÓDIGO DE ACCESO*  ───╮\n` +
+                                        `│ 🎬 *Servicio:* ${data.type || "Streaming"}\n` +
+                                        `│ 📧 *Cuenta:* ${correo}\n` +
+                                        `╰────────────────────────╯\n\n`;
 
-                        await sock.sendMessage(chat, { text: respuestaExito }, { quoted: m });
+                        if (data.code) {
+                            respuesta += `🔑 *CÓDIGO:* \`\`\`${data.code}\`\`\`\n\n`;
+                        }
+                        if (data.link) {
+                            respuesta += `🔗 *ENLACE DIRECTO:* \n${data.link}\n\n`;
+                        }
+
+                        respuesta += `⏰ *Válido por 15 minutos.*\n_Ingrésalo de inmediato en tu dispositivo._`;
+
+                        await sock.sendMessage(chat, { text: respuesta }, { quoted: m });
                     } else {
-                        const respuestaFallo = `❌ *No se encontró código reciente para:* \`${correo}\`\n\n` +
-                                               `• Comprueba que solicitaste el código en tu pantalla antes de consultar.\n` +
-                                               `• Si el problema persiste, usa *.pedircodigo* para atención manual.`;
+                        const detalleError = data.error || "Aún no se genera un código reciente.";
+                        const respuestaFallo = `❌ *Sin código disponible*\n\n` +
+                                               `• *Detalle:* ${detalleError}\n` +
+                                               `• *Cuenta:* \`${correo}\`\n\n` +
+                                               `_Asegúrate de solicitar el código en la pantalla antes de consultar, o usa *.pedircodigo* para atención manual._`;
 
                         await sock.sendMessage(chat, { text: respuestaFallo }, { quoted: m });
                     }
                 } catch (apiError) {
                     console.error("Error al consultar Apps Script:", apiError);
                     await sock.sendMessage(chat, { 
-                        text: "⚠️ Ocurrió un error al conectar con la base de datos de correos. Intenta nuevamente en unos segundos." 
+                        text: "⚠️ Error temporal al consultar la base de datos. Intenta nuevamente en unos segundos." 
                     }, { quoted: m });
                 }
             }
