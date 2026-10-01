@@ -1,16 +1,19 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require("@whiskeysockets/baileys");
-const qrcode = require("qrcode-terminal");
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, delay } = require("@whiskeysockets/baileys");
 const pino = require("pino");
 const express = require("express");
 
-// --- SERVIDOR WEB ANTISUSPENSION (Para Render) ---
+// --- SERVIDOR WEB ANTISUSPENSION ---
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.get("/", (req, res) => res.send("Bot Master WA Activo 24/7"));
 app.listen(PORT, () => console.log(`Servidor web escuchando en puerto ${PORT}`));
 
-// Pon aquí los números de administradores que pueden usar .abrir y .cerrar
-// Formato sin signo '+' (ejemplo: 521XXXXXXXXXX@s.whatsapp.net)
+// NÚMERO DE TELÉFONO DEL BOT (Para recibir el código de vinculación)
+// Pon tu número completo con código de país SIN espacios, guiones ni signo '+'
+// Ejemplo México: 521XXXXXXXXXX o 52XXXXXXXXXX
+const NUMERO_BOT = "521XXXXXXXXXX"; 
+
+// Números de administradores autorizados para .abrir y .cerrar
 const ADMINS = [
     "521XXXXXXXXXX@s.whatsapp.net"
 ];
@@ -21,29 +24,36 @@ async function iniciarBot() {
     const sock = makeWASocket({
         auth: state,
         logger: pino({ level: "silent" }),
-        printQRInTerminal: true
+        printQRInTerminal: false // Desactivamos el QR deforme
     });
 
     sock.ev.on("creds.update", saveCreds);
 
-    sock.ev.on("connection.update", (update) => {
-        const { connection, lastDisconnect, qr } = update;
+    // Si aún no está vinculado, solicitar código de emparejamiento (Pairing Code)
+    if (!sock.authState.creds.registered) {
+        setTimeout(async () => {
+            try {
+                const code = await sock.requestPairingCode(NUMERO_BOT);
+                console.log("\n==========================================");
+                console.log(`🔑 TU CÓDIGO DE VINCULACIÓN ES: ${code}`);
+                console.log("==========================================\n");
+            } catch (err) {
+                console.error("Error solicitando código:", err);
+            }
+        }, 3000);
+    }
 
-        if (qr) {
-            console.log("\n=================================");
-            console.log("⚡ ESCANEA ESTE QR EN WHATSAPP ⚡");
-            console.log("=================================\n");
-            qrcode.generate(qr, { small: true });
-        }
+    sock.ev.on("connection.update", (update) => {
+        const { connection, lastDisconnect } = update;
 
         if (connection === "close") {
             const shouldReconnect = (lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log("Conexión perdida. Reconectando...", shouldReconnect);
+            console.log("Conexión cerrada. Reconectando...", shouldReconnect);
             if (shouldReconnect) {
                 iniciarBot();
             }
         } else if (connection === "open") {
-            console.log("✅ ¡BOT DE WHATSAPP CONECTADO EXITOSAMENTE!");
+            console.log("✅ ¡BOT DE WHATSAPP VINCULADO Y ACTIVO EXITOSAMENTE!");
         }
     });
 
@@ -68,7 +78,7 @@ async function iniciarBot() {
                 await sock.groupSettingUpdate(chat, "announcement");
                 await sock.sendMessage(chat, { text: "🔒 *Grupo cerrado.* Solo administradores pueden enviar mensajes." });
             } catch (err) {
-                await sock.sendMessage(chat, { text: "❌ Error: Asegúrate de que el bot sea administrador." });
+                await sock.sendMessage(chat, { text: "❌ Error: Verifica que el bot sea admin." });
             }
         }
 
@@ -77,9 +87,9 @@ async function iniciarBot() {
             if (!esGrupo) return;
             try {
                 await sock.groupSettingUpdate(chat, "not_announcement");
-                await sock.sendMessage(chat, { text: "🔓 *Grupo abierto.* Todos los miembros pueden participar." });
+                await sock.sendMessage(chat, { text: "🔓 *Grupo abierto.* Todos pueden participar." });
             } catch (err) {
-                await sock.sendMessage(chat, { text: "❌ Error: Asegúrate de que el bot sea administrador." });
+                await sock.sendMessage(chat, { text: "❌ Error: Verifica que el bot sea admin." });
             }
         }
 
@@ -87,7 +97,7 @@ async function iniciarBot() {
         else if (comando === "codigo") {
             const servicio = args[0] ? args[0].toUpperCase() : "GENERAL";
             await sock.sendMessage(chat, { 
-                text: `🔑 *Entrega de Códigos (${servicio})*\n\nSolicitud en proceso...` 
+                text: `🔑 *Sistema de Códigos (${servicio})*\n\nSolicitud en proceso...` 
             }, { quoted: m });
         }
 
