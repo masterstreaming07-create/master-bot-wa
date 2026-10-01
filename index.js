@@ -34,7 +34,7 @@ async function iniciarBot() {
     const sock = makeWASocket({
         auth: state,
         logger: pino({ level: "silent" }),
-        printQRInTerminal: false
+        printQRInTerminal: true
     });
 
     sock.ev.on("creds.update", saveCreds);
