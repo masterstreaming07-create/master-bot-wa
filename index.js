@@ -11,11 +11,11 @@ app.listen(PORT, () => console.log(`Servidor web escuchando en puerto ${PORT}`))
 // NÚMERO DE TELÉFONO DEL BOT (Para recibir el código de vinculación)
 // Pon tu número completo con código de país SIN espacios, guiones ni signo '+'
 // Ejemplo México: 521XXXXXXXXXX o 52XXXXXXXXXX
-const NUMERO_BOT = "521XXXXXXXXXX"; 
+const NUMERO_BOT = "56996844379";
 
 // Números de administradores autorizados para .abrir y .cerrar
 const ADMINS = [
-    "521XXXXXXXXXX@s.whatsapp.net"
+    "56996844379@s.whatsapp.net"
 ];
 
 async function iniciarBot() {
