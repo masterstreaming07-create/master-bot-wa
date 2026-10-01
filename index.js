@@ -8,10 +8,8 @@ const PORT = process.env.PORT || 3000;
 app.get("/", (req, res) => res.send("Bot Master WA Activo 24/7"));
 app.listen(PORT, () => console.log(`Servidor web escuchando en puerto ${PORT}`));
 
-// Número del bot en formato internacional sin espacios ni '+'
 const NUMERO_BOT = "56996844379";
 
-// Extraer el texto real de mensajes simples, efímeros o multimedia
 function obtenerTextoMensaje(m) {
     if (!m || !m.message) return "";
     let msg = m.message;
@@ -31,8 +29,7 @@ function obtenerTextoMensaje(m) {
 }
 
 async function iniciarBot() {
-    // Usamos auth_session_v2 para forzar una sesión limpia y nueva
-    const { state, saveCreds } = await useMultiFileAuthState("auth_session_v2");
+    const { state, saveCreds } = await useMultiFileAuthState("auth_session");
 
     const sock = makeWASocket({
         auth: state,
@@ -42,18 +39,17 @@ async function iniciarBot() {
 
     sock.ev.on("creds.update", saveCreds);
 
-    // Si aún no está vinculado, solicitar código de emparejamiento con retraso de seguridad
     if (!sock.authState.creds.registered) {
         setTimeout(async () => {
             try {
                 const code = await sock.requestPairingCode(NUMERO_BOT);
                 console.log("\n==========================================");
-                console.log(`🔑 TU NUEVO CÓDIGO DE VINCULACIÓN ES: ${code}`);
+                console.log(`🔑 TU CÓDIGO DE VINCULACIÓN ES: ${code}`);
                 console.log("==========================================\n");
             } catch (err) {
-                console.error("Error solicitando código:", err?.message || err);
+                console.error("Error solicitando código:", err);
             }
-        }, 6000);
+        }, 4000);
     }
 
     sock.ev.on("connection.update", (update) => {
@@ -67,23 +63,19 @@ async function iniciarBot() {
         }
     });
 
-    // Escuchar mensajes entrantes
     sock.ev.on("messages.upsert", async (chatUpdate) => {
         try {
             if (!chatUpdate.messages) return;
             const m = chatUpdate.messages[0];
             if (!m.message) return;
 
-            // Ignorar los mensajes enviados por el propio bot para evitar bucles
+            // Ignorar mensajes enviados por el bot para no ciclarse
             if (m.key.fromMe) return;
 
             const texto = obtenerTextoMensaje(m);
             const chat = m.key.remoteJid;
 
-            if (!texto) return;
-
-            // Solo procesar si inicia con punto (.)
-            if (!texto.startsWith(".")) return;
+            if (!texto || !texto.startsWith(".")) return;
 
             console.log(`[COMANDO RECIBIDO]: "${texto}" en ${chat}`);
 
@@ -109,7 +101,7 @@ async function iniciarBot() {
             // --- COMANDO .cerrar ---
             else if (comando === "cerrar" || comando === "cerrargrupo") {
                 if (!esGrupo) {
-                    await sock.sendMessage(chat, { text: "⚠️ Este comando solo funciona en grupos." }, { quoted: m });
+                    await sock.sendMessage(chat, { text: "⚠️ Este comando solo funciona en grupos." });
                     return;
                 }
                 try {
@@ -117,14 +109,14 @@ async function iniciarBot() {
                     await sock.sendMessage(chat, { text: "🔒 *Grupo cerrado.* Solo administradores pueden enviar mensajes." });
                 } catch (err) {
                     console.error("Error al cerrar grupo:", err);
-                    await sock.sendMessage(chat, { text: "❌ Error: Asegúrate de que el bot sea administrador del grupo." }, { quoted: m });
+                    await sock.sendMessage(chat, { text: "❌ Error: Verifica que el bot sea administrador del grupo." });
                 }
             }
 
             // --- COMANDO .abrir ---
             else if (comando === "abrir" || comando === "abrirgrupo") {
                 if (!esGrupo) {
-                    await sock.sendMessage(chat, { text: "⚠️ Este comando solo funciona en grupos." }, { quoted: m });
+                    await sock.sendMessage(chat, { text: "⚠️ Este comando solo funciona en grupos." });
                     return;
                 }
                 try {
@@ -132,7 +124,7 @@ async function iniciarBot() {
                     await sock.sendMessage(chat, { text: "🔓 *Grupo abierto.* Todos los miembros pueden participar." });
                 } catch (err) {
                     console.error("Error al abrir grupo:", err);
-                    await sock.sendMessage(chat, { text: "❌ Error: Asegúrate de que el bot sea administrador del grupo." }, { quoted: m });
+                    await sock.sendMessage(chat, { text: "❌ Error: Verifica que el bot sea administrador del grupo." });
                 }
             }
 
@@ -141,7 +133,7 @@ async function iniciarBot() {
                 const servicio = args[0] ? args[0].toUpperCase() : "GENERAL";
                 await sock.sendMessage(chat, { 
                     text: `🔑 *Sistema de Códigos (${servicio})*\n\nSolicitud en proceso...` 
-                }, { quoted: m });
+                });
             }
 
         } catch (error) {
