@@ -70,7 +70,7 @@ function formatearUptime(ms) {
 // ==========================================
 async function iniciarBot() {
     const { state, saveCreds } = await useMultiFileAuthState("auth_session");
-    const sock = makeWASocket({ auth: state, logger: pino({ level: "silent" }), printQRInTerminal: false });
+    const sock = makeWASocket({ auth: state, logger: pino({ level: "silent" }), printQRInTerminal: true });
 
     sock.ev.on("creds.update", saveCreds);
     sock.ev.on("connection.update", (update) => {
