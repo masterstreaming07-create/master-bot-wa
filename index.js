@@ -10,7 +10,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // URL de tu aplicación web de Google Apps Script (/exec)
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxhD9gsq_s9jlLV1Qafccfknuan3J3mzoIe6GzYS-KVWJNZbUiR869zhbTqJDEPD-CsOw/exec";
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw0TvqX35X2S7LBfVj5lUoMeY_R7abYjjBSahCI2nK98QXlPCqxtFhigG8HR7NZ6JGK/exec";
 
 const TIEMPO_INICIO = Date.now();
 let qrActual = null;
