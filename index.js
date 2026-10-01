@@ -4,13 +4,13 @@ const express = require("express");
 const QRCode = require("qrcode");
 
 // ==========================================
-// 1. SERVIDOR WEB ANTISUSPENSIÓN (RENDER)
+// 1. SERVIDOR WEB Y URL DE APPS SCRIPT
 // ==========================================
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// URL de tu aplicación web de Google Apps Script (/exec)
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw0TvqX35X2S7LBfVj5lUoMeY_R7abYjjBSahCI2nK98QXlPCqxtFhigG8HR7NZ6JGK/exec";
+// URL de tu aplicación web de Google Apps Script
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxhD9gsq_s9jlLV1Qafccfknuan3J3mzoIe6GzYS-KVWJNZbUiR869zhbTqJDEPD-CsOw/exec";
 
 const TIEMPO_INICIO = Date.now();
 let qrActual = null;
@@ -78,7 +78,7 @@ function formatearUptime(ms) {
 }
 
 // ==========================================
-// 3. NÚCLEO DEL BOT
+// 3. INICIO Y ESCUCHA DEL BOT
 // ==========================================
 async function iniciarBot() {
     const { state, saveCreds } = await useMultiFileAuthState("auth_session");
@@ -129,75 +129,54 @@ async function iniciarBot() {
             const comando = args.shift().toLowerCase();
             const esGrupo = chat.endsWith("@g.us");
 
-            // --- 1. MENÚ PRINCIPAL (.menu / .help) ---
+            // --- 1. MENÚ PRINCIPAL ---
             if (comando === "menu" || comando === "help") {
-                const menu = `╭───  *MASTER STREAMING*  ───╮
-│  🟢 *Estado:* Online 24/7
-╰────────────────────────╯
-
-📌 *MENÚS DISPONIBLES*
- • *.menugrupo*  › Ajustes de administración
- • *.menuventas* › Planes, precios y medios de pago
- • *.menucodigos*› Extracción de códigos streaming
-
-⚡ *ACCESOS RÁPIDOS*
- • *.codigo [correo]* › Entrega automática
- • *.pedircodigo*    › Formato manual
- • *.ping*            › Velocidad del bot
-
-_Escribe cualquiera de los menús para ver sus opciones._`;
+                const menu = `╭───  *MASTER STREAMING*  ───╮\n` +
+                             `│  🟢 *Estado:* Operativo 24/7\n` +
+                             `╰────────────────────────╯\n\n` +
+                             `📌 *SUBMENÚS DISPONIBLES*\n` +
+                             ` • *.menugrupo*  › Administración del chat\n` +
+                             ` • *.menuventas* › Tarifas y métodos de pago\n\n` +
+                             `⚡ *SOLICITUD DE CÓDIGOS*\n` +
+                             ` • *.codigo [correo] [perfil]*\n` +
+                             `   _Genera la ficha con datos y vencimiento del Excel._\n` +
+                             ` • *.ping*  › Medidor de respuesta\n\n` +
+                             `_Escribe el comando directamente en el grupo._`;
 
                 await sock.sendMessage(chat, { text: menu }, { quoted: m });
             }
 
-            // --- 2. SUBMENÚ DE GRUPO (.menugrupo) ---
+            // --- 2. SUBMENÚ DE GRUPO ---
             else if (comando === "menugrupo") {
-                const menuGrupo = `👑 *GESTIÓN DE GRUPO*
-
-• *.cerrar*  › Solo administradores pueden escribir
-• *.abrir*   › Todos los miembros pueden escribir
-• *.tagall*  › Mencionar a todos los integrantes
-• *.link*    › Obtener enlace de invitación
-• *.uptime*  › Tiempo que lleva el bot encendido
-• *.ping*    › Latencia del servidor`;
+                const menuGrupo = `👑 *GESTIÓN DE GRUPO*\n\n` +
+                                  `• *.cerrar*  › Solo administradores pueden escribir\n` +
+                                  `• *.abrir*   › Todos los miembros pueden escribir\n` +
+                                  `• *.tagall*  › Mencionar a todos en el grupo\n` +
+                                  `• *.link*    › Enlace de invitación al grupo\n` +
+                                  `• *.uptime*  › Tiempo en línea del bot\n` +
+                                  `• *.ping*    › Latencia de respuesta`;
 
                 await sock.sendMessage(chat, { text: menuGrupo }, { quoted: m });
             }
 
-            // --- 3. SUBMENÚ DE VENTAS (.menuventas) ---
+            // --- 3. SUBMENÚ DE VENTAS ---
             else if (comando === "menuventas" || comando === "precios") {
-                const menuVentas = `💼 *CATÁLOGO Y SERVICIOS*
-
-• *.precios* › Lista de tarifas por pantalla / cuenta
-• *.pago*    › Cuentas bancarias y medios de pago
-• *.reglas*  › Normas del grupo y garantías
-
-_Contrataciones y renovaciones directamente con un administrador._`;
+                const menuVentas = `💼 *SERVICIOS Y PAGOS*\n\n` +
+                                   `• *.pago*   › Datos bancarios para transferencias\n` +
+                                   `• *.reglas* › Normas de garantía y uso\n\n` +
+                                   `_Para adquirir o renovar cuentas, envía mensaje directo a un admin._`;
 
                 await sock.sendMessage(chat, { text: menuVentas }, { quoted: m });
             }
 
-            // --- 4. SUBMENÚ DE CÓDIGOS (.menucodigos) ---
-            else if (comando === "menucodigos") {
-                const menuCodigos = `🔑 *SISTEMA DE CÓDIGOS*
-
-• *.codigo [correo]*
-  _Busca el código en tiempo real de Disney, Netflix, Universal o Fox._
-
-• *.pedircodigo*
-  _Genera la ficha para solicitar atención manual si la plataforma no arrojó código._`;
-
-                await sock.sendMessage(chat, { text: menuCodigos }, { quoted: m });
-            }
-
-            // --- 5. COMANDOS DE GRUPO (.cerrar, .abrir, .tagall, .link) ---
+            // --- 4. ACCIONES DE GRUPO ---
             else if (comando === "cerrar" || comando === "cerrargrupo") {
                 if (!esGrupo) return;
                 try {
                     await sock.groupSettingUpdate(chat, "announcement");
                     await sock.sendMessage(chat, { text: "🔒 *Grupo cerrado.* Solo administradores pueden enviar mensajes." });
                 } catch (err) {
-                    await sock.sendMessage(chat, { text: "❌ Error: Verifica que el bot sea administrador del grupo." });
+                    await sock.sendMessage(chat, { text: "❌ Error: Asegúrate de que el bot sea administrador." });
                 }
             }
 
@@ -207,7 +186,7 @@ _Contrataciones y renovaciones directamente con un administrador._`;
                     await sock.groupSettingUpdate(chat, "not_announcement");
                     await sock.sendMessage(chat, { text: "🔓 *Grupo abierto.* Todos los miembros pueden participar." });
                 } catch (err) {
-                    await sock.sendMessage(chat, { text: "❌ Error: Verifica que el bot sea administrador del grupo." });
+                    await sock.sendMessage(chat, { text: "❌ Error: Asegúrate de que el bot sea administrador." });
                 }
             }
 
@@ -226,7 +205,7 @@ _Contrataciones y renovaciones directamente con un administrador._`;
 
                     await sock.sendMessage(chat, { text: mensajeTag, mentions: menciones });
                 } catch (err) {
-                    await sock.sendMessage(chat, { text: "❌ Error al obtener los miembros del grupo." });
+                    await sock.sendMessage(chat, { text: "❌ Error al obtener los miembros." });
                 }
             }
 
@@ -234,13 +213,13 @@ _Contrataciones y renovaciones directamente con un administrador._`;
                 if (!esGrupo) return;
                 try {
                     const codigoInv = await sock.groupInviteCode(chat);
-                    await sock.sendMessage(chat, { text: `🔗 *Enlace del grupo:* https://chat.whatsapp.com/${codigoInv}` }, { quoted: m });
+                    await sock.sendMessage(chat, { text: `🔗 *Enlace de invitación:* https://chat.whatsapp.com/${codigoInv}` }, { quoted: m });
                 } catch (err) {
-                    await sock.sendMessage(chat, { text: "❌ Error: El bot debe ser administrador para sacar el enlace." });
+                    await sock.sendMessage(chat, { text: "❌ Error: El bot debe ser administrador." });
                 }
             }
 
-            // --- 6. UTILIDADES (.ping, .uptime) ---
+            // --- 5. UTILIDADES ---
             else if (comando === "ping") {
                 const inicio = Date.now();
                 await sock.sendMessage(chat, { text: `🏓 *¡Pong!* Latencia: ~${Date.now() - inicio}ms` }, { quoted: m });
@@ -251,91 +230,69 @@ _Contrataciones y renovaciones directamente con un administrador._`;
                 await sock.sendMessage(chat, { text: `⏱ *Tiempo activo:* \`${tiempo}\`` }, { quoted: m });
             }
 
-            // --- 7. EXTRACCIÓN AUTOMÁTICA DE CÓDIGOS (APPS SCRIPT) ---
+            // --- 6. ÚNICO COMANDO DE CÓDIGO (FICHA AUTOMÁTICA DEL EXCEL) ---
             else if (comando === "codigo") {
                 const correo = args[0] ? args[0].trim().toLowerCase() : "";
+                const perfil = args[1] ? args[1].trim().toUpperCase() : "COMPLETA";
 
                 if (!correo || !correo.includes("@")) {
                     await sock.sendMessage(chat, { 
-                        text: "⚠️ *Formato incorrecto.*\nEscribe el comando seguido del correo:\n\n_Ejemplo:_ `.codigo usuario@correo.com`" 
+                        text: `⚠️ *Formato incorrecto.*\n\n• *Para perfil:* \`.codigo correo@ejemplo.com 2\`\n• *Para completa:* \`.codigo correo@ejemplo.com\`` 
                     }, { quoted: m });
                     return;
                 }
 
-                await sock.sendMessage(chat, { text: `🔍 Consultando sistemas para: \`${correo}\`...` }, { quoted: m });
+                await sock.sendMessage(chat, { text: `📋 Verificando cuenta en inventario: \`${correo}\`...` }, { quoted: m });
 
                 try {
-                    const urlConsulta = `${APPS_SCRIPT_URL}?correo=${encodeURIComponent(correo)}`;
+                    const urlConsulta = `${APPS_SCRIPT_URL}?correo=${encodeURIComponent(correo)}&perfil=${encodeURIComponent(perfil)}`;
                     const response = await fetch(urlConsulta);
                     const data = await response.json();
 
                     if (data && data.ok) {
-                        let respuesta = `╭───  *CÓDIGO DE ACCESO*  ───╮\n` +
-                                        `│ 🎬 *Servicio:* ${data.type || "Streaming"}\n` +
-                                        `│ 📧 *Cuenta:* ${correo}\n` +
-                                        `╰────────────────────────╯\n\n`;
+                        const ficha = `╭───  *FICHA DE ATENCIÓN*  ───╮\n` +
+                                      `│ 🎬 *Servicio:* ${data.plataforma}\n` +
+                                      `│ 📧 *Cuenta:* ${data.correo}\n` +
+                                      `│ 👤 *Perfil:* ${data.perfil}\n` +
+                                      `│ 📅 *Vencimiento:* ${data.vence}\n` +
+                                      `╰────────────────────────╯\n\n` +
+                                      `📸 *ADJUNTA LA FOTO DEL TV*\n` +
+                                      `_Envía la fotografía clara de la pantalla para procesar el código._`;
 
-                        if (data.code) {
-                            respuesta += `🔑 *CÓDIGO:* \`\`\`${data.code}\`\`\`\n\n`;
-                        }
-                        if (data.link) {
-                            respuesta += `🔗 *ENLACE DIRECTO:* \n${data.link}\n\n`;
-                        }
-
-                        respuesta += `⏰ *Válido por 15 minutos.*\n_Ingrésalo de inmediato en tu dispositivo._`;
-
-                        await sock.sendMessage(chat, { text: respuesta }, { quoted: m });
+                        await sock.sendMessage(chat, { text: ficha }, { quoted: m });
                     } else {
-                        const detalleError = data.error || "Aún no se genera un código reciente.";
-                        const respuestaFallo = `❌ *Sin código disponible*\n\n` +
-                                               `• *Detalle:* ${detalleError}\n` +
-                                               `• *Cuenta:* \`${correo}\`\n\n` +
-                                               `_Asegúrate de solicitar el código en la pantalla antes de consultar, o usa *.pedircodigo* para atención manual._`;
+                        const errorMsg = data.error || "No encontrada en el inventario.";
+                        const fallo = `❌ *Cuenta no localizada*\n\n` +
+                                      `• *Detalle:* ${errorMsg}\n` +
+                                      `• *Cuenta:* \`${correo}\`\n\n` +
+                                      `_Comprueba que el correo coincida exactamente con la hoja de cálculo._`;
 
-                        await sock.sendMessage(chat, { text: respuestaFallo }, { quoted: m });
+                        await sock.sendMessage(chat, { text: fallo }, { quoted: m });
                     }
                 } catch (apiError) {
-                    console.error("Error al consultar Apps Script:", apiError);
+                    console.error("Error consultando inventario:", apiError);
                     await sock.sendMessage(chat, { 
-                        text: "⚠️ Error temporal al consultar la base de datos. Intenta nuevamente en unos segundos." 
+                        text: "⚠️ Error temporal al conectar con la hoja de cálculo. Intenta de nuevo." 
                     }, { quoted: m });
                 }
             }
 
-            // --- 8. FORMATO MANUAL (.pedircodigo / .ficha) ---
-            else if (comando === "pedircodigo" || comando === "ficha") {
-                const ficha = `📋 *SOLICITUD MANUAL DE CÓDIGO*\n\n` +
-                              `Copia y responde este mensaje con los datos:\n` +
-                              `━━━━━━━━━━━━━━━━━━━━\n` +
-                              `• *Plataforma:* \n` +
-                              `• *Correo:* \n` +
-                              `• *Perfil:* \n` +
-                              `• *Foto:* (Adjunta foto clara del TV)\n` +
-                              `━━━━━━━━━━━━━━━━━━━━\n` +
-                              `_Un asesor revisará la solicitud a la brevedad._`;
-
-                await sock.sendMessage(chat, { text: ficha }, { quoted: m });
-            }
-
-            // --- 9. INFORMACIÓN COMERCIAL ---
+            // --- 7. INFORMACIÓN COMERCIAL ---
             else if (comando === "pago" || comando === "metodos") {
-                const pagos = `💳 *MÉTODOS DE PAGO DISPONIBLES*
-
-• *Transferencia / SPEI:* Solicita CLABE por privado
-• *OXXO Pay:* Disponible
-• *Saldo interno:* Válido para revendedores
-
-_Envía tu comprobante en privado una vez realizada la operación._`;
+                const pagos = `💳 *MÉTODOS DE PAGO DISPONIBLES*\n\n` +
+                              `• *Transferencia / SPEI:* Solicita CLABE por privado\n` +
+                              `• *OXXO Pay:* Disponible\n` +
+                              `• *Saldo interno:* Válido para revendedores\n\n` +
+                              `_Envía tu comprobante en privado una vez realizada la operación._`;
                 await sock.sendMessage(chat, { text: pagos }, { quoted: m });
             }
 
             else if (comando === "reglas") {
-                const reglas = `📜 *REGLAS DEL GRUPO*
-
-1. Respeto mutuo entre todos los miembros.
-2. Prohibido enlaces de spam o publicidad externa.
-3. No alterar datos de acceso de las cuentas (correo/contraseña).
-4. Usar los comandos correspondientes para agilizar la entrega.`;
+                const reglas = `📜 *REGLAS DEL GRUPO*\n\n` +
+                               `1. Respeto mutuo entre todos los miembros.\n` +
+                               `2. Prohibido enlaces de spam o publicidad externa.\n` +
+                               `3. No alterar datos de acceso de las cuentas (correo/contraseña).\n` +
+                               `4. Solicitar códigos usando el formato correspondiente.`;
                 await sock.sendMessage(chat, { text: reglas }, { quoted: m });
             }
 
