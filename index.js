@@ -8,9 +8,10 @@ const PORT = process.env.PORT || 3000;
 app.get("/", (req, res) => res.send("Bot Master WA Activo 24/7"));
 app.listen(PORT, () => console.log(`Servidor web escuchando en puerto ${PORT}`));
 
+// Número del bot en formato internacional sin espacios ni '+'
 const NUMERO_BOT = "56996844379";
 
-// Extraer el texto real de mensajes simples o anidados
+// Extraer el texto real de mensajes simples, efímeros o multimedia
 function obtenerTextoMensaje(m) {
     if (!m || !m.message) return "";
     let msg = m.message;
@@ -30,7 +31,8 @@ function obtenerTextoMensaje(m) {
 }
 
 async function iniciarBot() {
-    const { state, saveCreds } = await useMultiFileAuthState("auth_session");
+    // Usamos auth_session_v2 para forzar una sesión limpia y nueva
+    const { state, saveCreds } = await useMultiFileAuthState("auth_session_v2");
 
     const sock = makeWASocket({
         auth: state,
@@ -40,15 +42,18 @@ async function iniciarBot() {
 
     sock.ev.on("creds.update", saveCreds);
 
+    // Si aún no está vinculado, solicitar código de emparejamiento con retraso de seguridad
     if (!sock.authState.creds.registered) {
         setTimeout(async () => {
             try {
                 const code = await sock.requestPairingCode(NUMERO_BOT);
-                console.log(`\n🔑 CÓDIGO: ${code}\n`);
+                console.log("\n==========================================");
+                console.log(`🔑 TU NUEVO CÓDIGO DE VINCULACIÓN ES: ${code}`);
+                console.log("==========================================\n");
             } catch (err) {
-                console.error("Error solicitando código:", err);
+                console.error("Error solicitando código:", err?.message || err);
             }
-        }, 3000);
+        }, 6000);
     }
 
     sock.ev.on("connection.update", (update) => {
@@ -69,7 +74,7 @@ async function iniciarBot() {
             const m = chatUpdate.messages[0];
             if (!m.message) return;
 
-            // Ignorar los mensajes enviados por el propio bot para no entrar en bucle
+            // Ignorar los mensajes enviados por el propio bot para evitar bucles
             if (m.key.fromMe) return;
 
             const texto = obtenerTextoMensaje(m);
