@@ -70,6 +70,7 @@ function formatearUptime(ms) {
 // ==========================================
 async function iniciarBot() {
     const { state, saveCreds } = await useMultiFileAuthState("auth_session");
+    // Mantenemos printQRInTerminal: true por si falla la web en Render
     const sock = makeWASocket({ auth: state, logger: pino({ level: "silent" }), printQRInTerminal: true });
 
     sock.ev.on("creds.update", saveCreds);
@@ -112,7 +113,7 @@ async function iniciarBot() {
                 await sock.sendMessage(chat, { text: "⏸️ *Bot en pausa.* No responderé hasta que uses *.start*." }, { quoted: m });
                 return;
             }
-            if (db.pausado) return; // Si está pausado, ignora todo lo demás
+            if (db.pausado) return;
 
             // --- SISTEMA DE CREACIÓN DE COMANDOS (.set / .del) ---
             if (comando === "set") {
@@ -155,8 +156,9 @@ async function iniciarBot() {
                              ` • *.set [nombre] [texto]* › Crea comandos\n` +
                              ` • *.del [nombre]* › Borra comandos\n` +
                              ` • *.stop* / *.start* › Apaga/Enciende el bot\n\n` +
-                             `🔑 *FICHAS AUTOMÁTICAS*\n` +
-                             ` • *.codigo [correo] [perfil]*\n` +
+                             `🔑 *FICHAS Y CÓDIGOS*\n` +
+                             ` • *.codigo [correo] [perfil]* › Da la ficha\n` +
+                             ` • *.pin [plataforma] [correo]* › Extrae OTP\n` +
                              ` • *.pedircodigo* › Formato vacío\n\n` +
                              `🛡️ *HERRAMIENTAS*\n` +
                              ` • *.cerrar* / *.abrir* › Control de grupo\n` +
@@ -200,7 +202,7 @@ async function iniciarBot() {
 
                 if (!correo || !correo.includes("@")) {
                     await sock.sendMessage(chat, { 
-                        text: `⚠️️ *Formato incorrecto.*\n\n• *Individual:* \`.codigo usuario@correo.com 2\`\n• *Completa:* \`.codigo usuario@correo.com\`` 
+                        text: `⚠ *Formato incorrecto.*\n\n• *Individual:* \`.codigo usuario@correo.com 2\`\n• *Completa:* \`.codigo usuario@correo.com\`` 
                     }, { quoted: m });
                     return;
                 }
@@ -227,6 +229,41 @@ async function iniciarBot() {
                     }
                 } catch (apiError) {
                     await sock.sendMessage(chat, { text: "⚠️ Error temporal al conectar con la hoja de cálculo." }, { quoted: m });
+                }
+            }
+
+            // --- NUEVO: EXTRAER CÓDIGO AUTOMÁTICO (OTP/PIN) ---
+            else if (comando === "pin" || comando === "extraer") {
+                const plataforma = args[0] ? args[0].trim().toLowerCase() : "";
+                const correo = args[1] ? args[1].trim().toLowerCase() : "";
+                const subtipo = args[2] ? args[2].trim().toLowerCase() : "4dig";
+
+                if (!plataforma || !correo || !correo.includes("@")) {
+                    await sock.sendMessage(chat, { 
+                        text: `⚠ *Formato incorrecto.*\n\n• Uso: \`.pin [plataforma] [correo]\`\n• Plataformas: \`netflix\`, \`disney\`, \`universal\`, \`fox\`\n• Ejemplo: \`.pin disney master@gmail.com\`` 
+                    }, { quoted: m });
+                    return;
+                }
+
+                await sock.sendMessage(chat, { text: `⏳ *${plataforma.toUpperCase()}* | Extrayendo código reciente para \`${correo}\`...\n_Esto puede tardar unos segundos._` }, { quoted: m });
+
+                try {
+                    const urlExtraer = `${APPS_SCRIPT_URL}?accion=extraer&plataforma=${encodeURIComponent(plataforma)}&correo=${encodeURIComponent(correo)}&subtipo=${encodeURIComponent(subtipo)}`;
+                    const response = await fetch(urlExtraer);
+                    const data = await response.json();
+
+                    if (data && data.ok) {
+                        let msgExito = `✅ *CÓDIGO RECIBIDO*\n\n`;
+                        msgExito += `📺 *Servicio:* ${data.type || plataforma.toUpperCase()}\n`;
+                        msgExito += `🔑 *Código:* *${data.code}*\n`;
+                        if (data.link) msgExito += `🔗 *Actualizar Hogar:* ${data.link}\n`;
+                        
+                        await sock.sendMessage(chat, { text: msgExito }, { quoted: m });
+                    } else {
+                        await sock.sendMessage(chat, { text: `❌ *Error al extraer:*\n\nDetalle: ${data.error || "Aún no llega el correo o ya caducó."}` }, { quoted: m });
+                    }
+                } catch (apiError) {
+                    await sock.sendMessage(chat, { text: "⚠️ Error de conexión con tu servidor MasterStreaming." }, { quoted: m });
                 }
             }
 
