@@ -100,7 +100,7 @@ async function iniciarBot() {
             const comando = args.shift().toLowerCase();
             const esGrupo = chat.endsWith("@g.us");
 
-            // --- SISTEMA ROBUSTO DE PERMISOS ---
+            // --- SISTEMA ROBUSTO DE PERMISOS (Corregido para México 52 vs 521) ---
             let esAdmin = false;
             let soyAdmin = false;
             let groupMetadata = null;
@@ -108,10 +108,12 @@ async function iniciarBot() {
             if (esGrupo) {
                 groupMetadata = await sock.groupMetadata(chat);
                 const senderId = m.key.participant || m.key.remoteJid;
-                const botNumber = sock.user.id.split(':')[0]; // Más seguro
+                
+                // Extraemos solo los últimos 10 dígitos de tu bot para evitar el error del prefijo
+                const botNumber10 = sock.user.id.split(':')[0].slice(-10); 
                 
                 esAdmin = groupMetadata.participants.some(p => p.id === senderId && (p.admin === 'admin' || p.admin === 'superadmin'));
-                soyAdmin = groupMetadata.participants.some(p => p.id.startsWith(botNumber) && (p.admin === 'admin' || p.admin === 'superadmin'));
+                soyAdmin = groupMetadata.participants.some(p => p.id.includes(botNumber10) && (p.admin === 'admin' || p.admin === 'superadmin'));
             }
 
             const responder = async (txt) => { await sock.sendMessage(chat, { text: txt }, { quoted: m }); };
@@ -200,7 +202,7 @@ async function iniciarBot() {
                 if (!esGrupo || !esAdmin) return responder(`${pre} ⛔ Solo administradores.${pie}`);
                 if (!soyAdmin) return responder(`${pre} ❌ Hazme administrador primero.${pie}`);
                 let target = m.message.extendedTextMessage?.contextInfo?.participant || (m.message.extendedTextMessage?.contextInfo?.mentionedJid ? m.message.extendedTextMessage.contextInfo.mentionedJid[0] : null);
-                if (!target) return responder(`${pre} ⚠️ Menciona al usuario.${pie}`);
+                if (!target) return responder(`${pre} ⚠️ Responde al mensaje del usuario o menciónalo con @.${pie}`);
                 
                 const targetObj = groupMetadata.participants.find(p => p.id === target);
                 if (targetObj?.admin) return responder(`${pre} 🛡️ *BLINDAJE ACTIVO*${sep} Imposible expulsar a otro Administrador.${pie}`);
@@ -213,7 +215,7 @@ async function iniciarBot() {
                 if (!esGrupo || !esAdmin) return;
                 if (!soyAdmin) return responder(`${pre} ❌ Hazme administrador primero.${pie}`);
                 let target = m.message.extendedTextMessage?.contextInfo?.participant || (m.message.extendedTextMessage?.contextInfo?.mentionedJid ? m.message.extendedTextMessage.contextInfo.mentionedJid[0] : null);
-                if (!target) return;
+                if (!target) return responder(`${pre} ⚠️ Responde al mensaje del usuario o menciónalo con @.${pie}`);
                 
                 if (comando === "degradar") {
                     const targetObj = groupMetadata.participants.find(p => p.id === target);
@@ -370,7 +372,7 @@ async function iniciarBot() {
             
             if (comando === "ping") return responder(`${pre} 🏓 *PONG*${sep} Latencia: ~${Date.now() - TIEMPO_INICIO}ms${pie}`);
             if (comando === "uptime") return responder(`${pre} ⏱️ *UPTIME*${sep} ${formatearUptime(Date.now() - TIEMPO_INICIO)}${pie}`);
-            if (comando === "dev") return responder(`${pre} 👨‍💻 *MASTER SYSTEM*${sep} Base: Node.js/Baileys\n║ Host: Render Cloud\n║ Motor: Google Apps Script${pie}`);
+            if (comando === "dev") return responder(`${pre} 👨‍💻 *MASTER SYSTEM*${sep} Base: Node.js/Baileys\n║ Host: Render Cloud\n║ Motor: Apps Script${pie}`);
 
         } catch (error) { console.error("Error procesando mensaje:", error); }
     });
