@@ -10,16 +10,12 @@ const fs = require("fs");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// URL de tu aplicación web de Google Apps Script (/exec)
 const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwsfiLlP7ot1DSHiyLfBdXEMI_6sbt9fD0MXxynwGqPG-HDZPpTLiWffxzrFFLP5Nrl/exec";
 
-// Archivo local para guardar comandos personalizados y estado
 const DB_PATH = "./auth_session/database.json";
 let db = { comandos: {}, pausado: false };
 
-if (fs.existsSync(DB_PATH)) {
-    db = JSON.parse(fs.readFileSync(DB_PATH));
-}
+if (fs.existsSync(DB_PATH)) db = JSON.parse(fs.readFileSync(DB_PATH));
 
 function guardarDB() {
     if (!fs.existsSync('./auth_session')) fs.mkdirSync('./auth_session');
@@ -31,18 +27,14 @@ let qrActual = null;
 let botConectado = false;
 
 app.get("/", async (req, res) => {
-    if (botConectado) {
-        return res.send(`<h1 style="color: green; text-align: center; margin-top: 50px;">✅ MASTER BOT WA ACTIVO</h1>`);
-    }
+    if (botConectado) return res.send(`<h1 style="color: green; text-align: center; margin-top: 50px;">✅ MASTER BOT WA ACTIVO (UPTIMEROBOT CONECTADO)</h1>`);
     if (qrActual) {
         try {
             const qrImage = await QRCode.toDataURL(qrActual);
             return res.send(`<div style="text-align: center; margin-top: 30px;"><h2>⚡ ESCANEAR VINCULACIÓN ⚡</h2><img src="${qrImage}" style="width: 280px; border: 2px solid #333;" /><script>setTimeout(() => location.reload(), 15000);</script></div>`);
-        } catch (e) {
-            return res.send("Generando código QR...");
-        }
+        } catch (e) { return res.send("Generando código QR..."); }
     }
-    res.send("Iniciando servicio...");
+    res.send("Iniciando servicio... Revisa los logs en Render.");
 });
 app.listen(PORT, () => console.log(`Servidor web escuchando en puerto ${PORT}`));
 
@@ -59,18 +51,11 @@ function obtenerTextoMensaje(m) {
     return (msg.conversation || msg.extendedTextMessage?.text || msg.imageMessage?.caption || msg.videoMessage?.caption || "").trim();
 }
 
-function formatearUptime(ms) {
-    const s = Math.floor((ms / 1000) % 60), m = Math.floor((ms / (1000 * 60)) % 60);
-    const h = Math.floor((ms / (1000 * 60 * 60)) % 24), d = Math.floor(ms / (1000 * 60 * 60 * 24));
-    return `${d}d${h}h ${m}m${s}s`;
-}
-
 // ==========================================
 // 3. NÚCLEO DEL BOT
 // ==========================================
 async function iniciarBot() {
     const { state, saveCreds } = await useMultiFileAuthState("auth_session");
-    // Mantenemos printQRInTerminal: true por si falla la web en Render
     const sock = makeWASocket({ auth: state, logger: pino({ level: "silent" }), printQRInTerminal: true });
 
     sock.ev.on("creds.update", saveCreds);
@@ -100,89 +85,142 @@ async function iniciarBot() {
             const comando = args.shift().toLowerCase();
             const esGrupo = chat.endsWith("@g.us");
 
-            // --- SISTEMA DE START / STOP ---
-            if (comando === "start") {
-                db.pausado = false;
-                guardarDB();
-                await sock.sendMessage(chat, { text: "▶️ *Bot reactivado.* Escuchando comandos." }, { quoted: m });
-                return;
+            // --- SISTEMA DE PERMISOS (ADMINS) ---
+            let esAdmin = false;
+            let soyAdmin = false;
+            
+            if (esGrupo) {
+                const groupMetadata = await sock.groupMetadata(chat);
+                const participants = groupMetadata.participants;
+                const senderId = m.key.participant;
+                const botId = sock.user.id.split(':')[0] + '@s.whatsapp.net';
+                
+                const senderObj = participants.find(p => p.id === senderId);
+                esAdmin = senderObj?.admin === 'admin' || senderObj?.admin === 'superadmin';
+                
+                const botObj = participants.find(p => p.id === botId);
+                soyAdmin = botObj?.admin === 'admin' || botObj?.admin === 'superadmin';
             }
-            if (comando === "stop") {
-                db.pausado = true;
-                guardarDB();
-                await sock.sendMessage(chat, { text: "⏸️ *Bot en pausa.* No responderé hasta que uses *.start*." }, { quoted: m });
-                return;
-            }
+
+            // --- ESTADO DEL BOT ---
+            if (comando === "start" && esAdmin) { db.pausado = false; guardarDB(); return await sock.sendMessage(chat, { text: "▶️ *Bot reactivado.*" }, { quoted: m }); }
+            if (comando === "stop" && esAdmin) { db.pausado = true; guardarDB(); return await sock.sendMessage(chat, { text: "⏸️ *Bot en pausa.*" }, { quoted: m }); }
             if (db.pausado) return;
 
-            // --- SISTEMA DE CREACIÓN DE COMANDOS (.set / .del) ---
-            if (comando === "set") {
-                const nombreCmd = args.shift()?.toLowerCase();
-                const textoCmd = args.join(" ");
-                if (!nombreCmd || !textoCmd) {
-                    await sock.sendMessage(chat, { text: "⚠️ *Uso:* `.set [nombre] [texto]`\n_Ejemplo:_ `.set pago Mis cuentas son...`" }, { quoted: m });
-                    return;
-                }
-                db.comandos[nombreCmd] = textoCmd;
-                guardarDB();
-                await sock.sendMessage(chat, { text: `✅ Comando personalizado \`.${nombreCmd}\` guardado con éxito.` }, { quoted: m });
-                return;
-            }
-
-            if (comando === "del") {
-                const nombreCmd = args[0]?.toLowerCase();
-                if (!nombreCmd || !db.comandos[nombreCmd]) {
-                    await sock.sendMessage(chat, { text: `⚠️ El comando \`.${nombreCmd}\` no existe.` }, { quoted: m });
-                    return;
-                }
-                delete db.comandos[nombreCmd];
-                guardarDB();
-                await sock.sendMessage(chat, { text: `🗑️ Comando \`.${nombreCmd}\` eliminado.` }, { quoted: m });
-                return;
-            }
-
-            // --- EJECUCIÓN DE COMANDOS PERSONALIZADOS ---
-            if (db.comandos[comando]) {
-                await sock.sendMessage(chat, { text: db.comandos[comando] }, { quoted: m });
-                return;
-            }
-
-            // --- COMANDOS NATIVOS DEL SISTEMA ---
+            // ==========================================
+            // MÓDULO 1: MENÚ EXTENSO
+            // ==========================================
             if (comando === "menu" || comando === "help") {
-                const menu = `╭───  *MASTER STREAMING*  ───╮\n` +
-                             `│  🟢 *Estado:* Operativo 24/7\n` +
+                const menu = `╭───  *MASTER STREAMING PRO*  ───╮\n` +
+                             `│  👑 *Suite de Automatización*\n` +
                              `╰────────────────────────╯\n\n` +
-                             `⚙️ *ADMINISTRACIÓN PREMIUM*\n` +
-                             ` • *.set [nombre] [texto]* › Crea comandos\n` +
-                             ` • *.del [nombre]* › Borra comandos\n` +
-                             ` • *.stop* / *.start* › Apaga/Enciende el bot\n\n` +
-                             `🔑 *FICHAS Y CÓDIGOS*\n` +
-                             ` • *.codigo [correo] [perfil]* › Da la ficha\n` +
-                             ` • *.pin [plataforma] [correo]* › Extrae OTP\n` +
-                             ` • *.pedircodigo* › Formato vacío\n\n` +
-                             `🛡️ *HERRAMIENTAS*\n` +
-                             ` • *.cerrar* / *.abrir* › Control de grupo\n` +
-                             ` • *.tagall* › Menciona a todos\n` +
-                             ` • *.ping* / *.uptime*`;
-                await sock.sendMessage(chat, { text: menu }, { quoted: m });
+                             `🛒 *VENTAS Y ENTREGAS*\n` +
+                             ` • *.codigo [correo] [perfil]* › Ficha de cuenta\n` +
+                             ` • *.pin [plat] [correo]* › Extrae OTP en vivo\n` +
+                             ` • *.pedircodigo* › Plantilla de solicitud\n\n` +
+                             `👥 *GESTIÓN DE GRUPO (Admins)*\n` +
+                             ` • *.n [texto]* › Anuncio (Mención oculta)\n` +
+                             ` • *.kick [@user]* › Expulsar del grupo\n` +
+                             ` • *.promover [@user]* › Dar administrador\n` +
+                             ` • *.degradar [@user]* › Quitar administrador\n` +
+                             ` • *.link* › Obtener enlace de invitación\n` +
+                             ` • *.cerrar* / *.abrir* › Control de chat\n` +
+                             ` • *.tagall* › Mención visible de todos\n\n` +
+                             `⚙️ *CONFIGURACIÓN DEL SISTEMA*\n` +
+                             ` • *.set [nombre] [texto]* › Crear comando extra\n` +
+                             ` • *.del [nombre]* › Borrar comando extra\n` +
+                             ` • *.stop* / *.start* › Pausar/Reactivar bot\n` +
+                             ` • *.ping* › Ver latencia del servidor`;
+                await sock.sendMessage(chat, { text: menu });
+                return;
             }
 
-            else if (comando === "cerrar" || comando === "cerrargrupo") {
+            // ==========================================
+            // MÓDULO 2: GESTIÓN DE GRUPO (SOLO ADMINS)
+            // ==========================================
+            
+            // 1. NOTIFICACIÓN OCULTA (.n) - ¡Reparado, no duplica!
+            if (comando === "n" || comando === "anuncio") {
                 if (!esGrupo) return;
+                if (!esAdmin) return await sock.sendMessage(chat, { text: "⛔ Comando reservado para administradores." }, { quoted: m });
+
+                let textoFinal = args.join(" ");
+                const quotedMsg = m.message.extendedTextMessage?.contextInfo?.quotedMessage;
+
+                if (!textoFinal && quotedMsg) {
+                    textoFinal = quotedMsg.conversation || quotedMsg.extendedTextMessage?.text || "";
+                }
+
+                if (!textoFinal) return await sock.sendMessage(chat, { text: "⚠️ Escribe un mensaje o responde a uno. Ej: `.n ¡Listos para la venta!`" }, { quoted: m });
+
+                const groupMetadata = await sock.groupMetadata(chat);
+                const menciones = groupMetadata.participants.map(p => p.id);
+                
+                await sock.sendMessage(chat, { text: textoFinal, mentions: menciones });
+                return;
+            }
+
+            // 2. EXPULSAR USUARIOS (.kick)
+            if (comando === "kick" || comando === "sacar") {
+                if (!esGrupo) return;
+                if (!esAdmin) return await sock.sendMessage(chat, { text: "⛔ Comando reservado para administradores." }, { quoted: m });
+                if (!soyAdmin) return await sock.sendMessage(chat, { text: "❌ Necesito ser administrador del grupo para poder expulsar." }, { quoted: m });
+
+                let target = m.message.extendedTextMessage?.contextInfo?.participant 
+                          || (m.message.extendedTextMessage?.contextInfo?.mentionedJid ? m.message.extendedTextMessage.contextInfo.mentionedJid[0] : null);
+
+                if (!target) return await sock.sendMessage(chat, { text: "⚠️ Tienes que responder al mensaje de la persona o mencionarla con @." }, { quoted: m });
+
+                await sock.groupParticipantsUpdate(chat, [target], "remove");
+                await sock.sendMessage(chat, { text: "👢 *Usuario eliminado exitosamente del grupo.*" });
+                return;
+            }
+
+            // 3. PROMOVER Y DEGRADAR ADMINS
+            if (comando === "promover" || comando === "degradar") {
+                if (!esGrupo) return;
+                if (!esAdmin) return await sock.sendMessage(chat, { text: "⛔ Solo admins." }, { quoted: m });
+                if (!soyAdmin) return await sock.sendMessage(chat, { text: "❌ Necesito ser administrador." }, { quoted: m });
+
+                let target = m.message.extendedTextMessage?.contextInfo?.participant 
+                          || (m.message.extendedTextMessage?.contextInfo?.mentionedJid ? m.message.extendedTextMessage.contextInfo.mentionedJid[0] : null);
+
+                if (!target) return await sock.sendMessage(chat, { text: "⚠️ Responde al mensaje del usuario o menciónalo." }, { quoted: m });
+
+                const action = comando === "promover" ? "promote" : "demote";
+                await sock.groupParticipantsUpdate(chat, [target], action);
+                await sock.sendMessage(chat, { text: comando === "promover" ? "👑 *Usuario promovido a Administrador.*" : "⬇️ *Usuario degradado a miembro.*" });
+                return;
+            }
+
+            // 4. ENLACE DEL GRUPO (.link)
+            if (comando === "link" || comando === "enlace") {
+                if (!esGrupo) return;
+                if (!esAdmin) return await sock.sendMessage(chat, { text: "⛔ Solo admins pueden pedir el enlace." }, { quoted: m });
+                if (!soyAdmin) return await sock.sendMessage(chat, { text: "❌ Necesito ser administrador para generar el enlace." }, { quoted: m });
+
+                const code = await sock.groupInviteCode(chat);
+                await sock.sendMessage(chat, { text: `🔗 *Enlace del Grupo:*\nhttps://chat.whatsapp.com/${code}` }, { quoted: m });
+                return;
+            }
+
+            // 5. CERRAR / ABRIR
+            if (comando === "cerrar") {
+                if (!esGrupo || !esAdmin || !soyAdmin) return;
                 await sock.groupSettingUpdate(chat, "announcement");
-                await sock.sendMessage(chat, { text: "🔒 *Grupo cerrado.*" });
+                await sock.sendMessage(chat, { text: "🔒 *El grupo ha sido cerrado. Solo administradores pueden enviar mensajes.*" });
             }
-
-            else if (comando === "abrir" || comando === "abrirgrupo") {
-                if (!esGrupo) return;
+            if (comando === "abrir") {
+                if (!esGrupo || !esAdmin || !soyAdmin) return;
                 await sock.groupSettingUpdate(chat, "not_announcement");
-                await sock.sendMessage(chat, { text: "🔓 *Grupo abierto.*" });
+                await sock.sendMessage(chat, { text: "🔓 *El grupo ha sido abierto. Todos pueden enviar mensajes.*" });
             }
 
-            else if (comando === "tagall" || comando === "todos") {
-                if (!esGrupo) return;
+            // 6. TAG ALL VISIBLE
+            if (comando === "tagall" || comando === "todos") {
+                if (!esGrupo || !esAdmin) return;
                 const grupoMetadata = await sock.groupMetadata(chat);
-                let mensajeTag = `📢 *ATENCIÓN*\n\n`;
+                let mensajeTag = `📢 *INVOCACIÓN GENERAL*\n\n`;
                 const menciones = [];
                 for (const p of grupoMetadata.participants) {
                     menciones.push(p.id);
@@ -191,22 +229,20 @@ async function iniciarBot() {
                 await sock.sendMessage(chat, { text: mensajeTag, mentions: menciones });
             }
 
-            else if (comando === "ping") {
-                await sock.sendMessage(chat, { text: `🏓 *Pong!* ~${Date.now() - TIEMPO_INICIO}ms` }, { quoted: m });
-            }
 
-            // --- FICHA DESDE GOOGLE SHEETS ---
-            else if (comando === "codigo") {
+            // ==========================================
+            // MÓDULO 3: VENTAS Y AUTOMATIZACIÓN
+            // ==========================================
+
+            // --- FICHA (.codigo) ---
+            if (comando === "codigo") {
                 const correo = args[0] ? args[0].trim().toLowerCase() : "";
                 const perfil = args[1] ? args[1].trim().toUpperCase() : "COMPLETA";
 
                 if (!correo || !correo.includes("@")) {
-                    await sock.sendMessage(chat, { 
-                        text: `⚠ *Formato incorrecto.*\n\n• *Individual:* \`.codigo usuario@correo.com 2\`\n• *Completa:* \`.codigo usuario@correo.com\`` 
-                    }, { quoted: m });
+                    await sock.sendMessage(chat, { text: `⚠ *Formato incorrecto.*\n• \`.codigo usuario@correo.com 2\`` }, { quoted: m });
                     return;
                 }
-
                 await sock.sendMessage(chat, { text: `📋 Verificando cuenta: \`${correo}\`...` }, { quoted: m });
 
                 try {
@@ -225,27 +261,23 @@ async function iniciarBot() {
                                       `_Envía la fotografía clara de la pantalla._`;
                         await sock.sendMessage(chat, { text: ficha }, { quoted: m });
                     } else {
-                        await sock.sendMessage(chat, { text: `❌ *No localizada*\n\nDetalle: ${data.error || "No existe en el inventario."}` }, { quoted: m });
+                        await sock.sendMessage(chat, { text: `❌ *No localizada*\nDetalle: ${data.error || "No existe en el inventario."}` }, { quoted: m });
                     }
-                } catch (apiError) {
-                    await sock.sendMessage(chat, { text: "⚠️ Error temporal al conectar con la hoja de cálculo." }, { quoted: m });
-                }
+                } catch (e) { await sock.sendMessage(chat, { text: "⚠️ Error de conexión con Google Sheets." }, { quoted: m }); }
             }
 
-            // --- NUEVO: EXTRAER CÓDIGO AUTOMÁTICO (OTP/PIN) ---
-            else if (comando === "pin" || comando === "extraer") {
+            // --- EXTRAER PIN (.pin) ---
+            if (comando === "pin" || comando === "extraer") {
                 const plataforma = args[0] ? args[0].trim().toLowerCase() : "";
                 const correo = args[1] ? args[1].trim().toLowerCase() : "";
                 const subtipo = args[2] ? args[2].trim().toLowerCase() : "4dig";
 
                 if (!plataforma || !correo || !correo.includes("@")) {
-                    await sock.sendMessage(chat, { 
-                        text: `⚠ *Formato incorrecto.*\n\n• Uso: \`.pin [plataforma] [correo]\`\n• Plataformas: \`netflix\`, \`disney\`, \`universal\`, \`fox\`\n• Ejemplo: \`.pin disney master@gmail.com\`` 
-                    }, { quoted: m });
+                    await sock.sendMessage(chat, { text: `⚠ *Formato incorrecto.*\nUso: \`.pin [plataforma] [correo]\`\nEj: \`.pin disney usuario@gmail.com\`` }, { quoted: m });
                     return;
                 }
 
-                await sock.sendMessage(chat, { text: `⏳ *${plataforma.toUpperCase()}* | Extrayendo código reciente para \`${correo}\`...\n_Esto puede tardar unos segundos._` }, { quoted: m });
+                await sock.sendMessage(chat, { text: `⏳ *${plataforma.toUpperCase()}* | Extrayendo código reciente para \`${correo}\`...` }, { quoted: m });
 
                 try {
                     const urlExtraer = `${APPS_SCRIPT_URL}?accion=extraer&plataforma=${encodeURIComponent(plataforma)}&correo=${encodeURIComponent(correo)}&subtipo=${encodeURIComponent(subtipo)}`;
@@ -253,28 +285,44 @@ async function iniciarBot() {
                     const data = await response.json();
 
                     if (data && data.ok) {
-                        let msgExito = `✅ *CÓDIGO RECIBIDO*\n\n`;
-                        msgExito += `📺 *Servicio:* ${data.type || plataforma.toUpperCase()}\n`;
-                        msgExito += `🔑 *Código:* *${data.code}*\n`;
-                        if (data.link) msgExito += `🔗 *Actualizar Hogar:* ${data.link}\n`;
-                        
+                        let msgExito = `✅ *CÓDIGO RECIBIDO*\n\n📺 *Servicio:* ${data.type || plataforma.toUpperCase()}\n🔑 *Código:* *${data.code}*\n`;
+                        if (data.link) msgExito += `🔗 *Enlace Hogar:* ${data.link}\n`;
                         await sock.sendMessage(chat, { text: msgExito }, { quoted: m });
                     } else {
-                        await sock.sendMessage(chat, { text: `❌ *Error al extraer:*\n\nDetalle: ${data.error || "Aún no llega el correo o ya caducó."}` }, { quoted: m });
+                        await sock.sendMessage(chat, { text: `❌ *Error:*\n${data.error || "Aún no llega el correo o ya caducó."}` }, { quoted: m });
                     }
-                } catch (apiError) {
-                    await sock.sendMessage(chat, { text: "⚠️ Error de conexión con tu servidor MasterStreaming." }, { quoted: m });
-                }
+                } catch (e) { await sock.sendMessage(chat, { text: "⚠️ Error al conectar con MasterStreaming." }, { quoted: m }); }
             }
 
-            else if (comando === "pedircodigo" || comando === "ficha") {
-                const ficha = `📋 *SOLICITUD MANUAL*\n\n━━━━━━━━━━━━━━━━━━━━\n• *Plataforma:* \n• *Correo:* \n• *Perfil:* \n• *Foto:* (Adjunta foto)\n━━━━━━━━━━━━━━━━━━━━`;
-                await sock.sendMessage(chat, { text: ficha }, { quoted: m });
+            if (comando === "pedircodigo" || comando === "ficha") {
+                await sock.sendMessage(chat, { text: `📋 *SOLICITUD MANUAL*\n\n━━━━━━━━━━━━━━━━━━━━\n• *Plataforma:* \n• *Correo:* \n• *Perfil:* \n• *Foto:* (Adjunta foto)\n━━━━━━━━━━━━━━━━━━━━` }, { quoted: m });
             }
 
-        } catch (error) {
-            console.error("Error procesando mensaje:", error);
-        }
+            // ==========================================
+            // MÓDULO 4: COMANDOS PERSONALIZADOS (.set)
+            // ==========================================
+            if (comando === "set" && esAdmin) {
+                const nombreCmd = args.shift()?.toLowerCase();
+                const textoCmd = args.join(" ");
+                if (!nombreCmd || !textoCmd) return await sock.sendMessage(chat, { text: "⚠️ Uso: `.set pago Mis cuentas son...`" }, { quoted: m });
+                db.comandos[nombreCmd] = textoCmd; guardarDB();
+                return await sock.sendMessage(chat, { text: `✅ Comando \`.${nombreCmd}\` creado.` }, { quoted: m });
+            }
+            if (comando === "del" && esAdmin) {
+                const nombreCmd = args[0]?.toLowerCase();
+                if (!db.comandos[nombreCmd]) return await sock.sendMessage(chat, { text: `⚠️ El comando \`.${nombreCmd}\` no existe.` }, { quoted: m });
+                delete db.comandos[nombreCmd]; guardarDB();
+                return await sock.sendMessage(chat, { text: `🗑️ Comando \`.${nombreCmd}\` eliminado.` }, { quoted: m });
+            }
+            if (db.comandos[comando]) {
+                return await sock.sendMessage(chat, { text: db.comandos[comando] }, { quoted: m });
+            }
+
+            if (comando === "ping") {
+                await sock.sendMessage(chat, { text: `🏓 *Pong!* Latencia: ~${Date.now() - TIEMPO_INICIO}ms` }, { quoted: m });
+            }
+
+        } catch (error) { console.error("Error procesando mensaje:", error); }
     });
 }
 
