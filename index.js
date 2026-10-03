@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, jidNormalizedUser } = require("@whiskeysockets/baileys");
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require("@whiskeysockets/baileys");
 const pino = require("pino");
 const express = require("express");
 const QRCode = require("qrcode");
@@ -36,7 +36,7 @@ app.get("/", async (req, res) => {
 app.listen(PORT, () => console.log(`Servidor web activo en puerto ${PORT}`));
 
 // ==========================================
-// 2. UTILIDADES Y DISEÑO VISUAL PREMIUM
+// 2. UTILIDADES Y DISEÑO VISUAL (CLEAN UI)
 // ==========================================
 function obtenerTextoMensaje(m) {
     if (!m || !m.message) return "";
@@ -48,10 +48,10 @@ function obtenerTextoMensaje(m) {
     return (msg.conversation || msg.extendedTextMessage?.text || msg.imageMessage?.caption || msg.videoMessage?.caption || "").trim();
 }
 
-// Plantilla de diseño para mensajes del bot
-const pre = "┌───[ 👑 *MASTER PRO* ]───\n│";
-const sep = "\n├───────────────────\n│";
-const pie = "\n└───────────────────\n";
+// Plantilla de diseño redondeada y limpia
+const pre = "╭─── 👑 *MASTER PRO* ───╮\n│";
+const sep = "\n├───────────────────────\n│";
+const pie = "\n╰───────────────────────╯\n";
 
 // ==========================================
 // 3. NÚCLEO Y PROCESADOR DE COMANDOS
@@ -67,20 +67,11 @@ async function iniciarBot() {
         
         if (connection === "close") {
             botConectado = false;
-            // Extracción segura del error para evitar crash
             let statusCode = DisconnectReason.loggedOut;
-            if (lastDisconnect && lastDisconnect.error && lastDisconnect.error.output) {
-                statusCode = lastDisconnect.error.output.statusCode;
-            } else if (lastDisconnect && lastDisconnect.error && lastDisconnect.error.data) {
-                statusCode = lastDisconnect.error.data.statusCode;
-            }
+            if (lastDisconnect && lastDisconnect.error && lastDisconnect.error.output) statusCode = lastDisconnect.error.output.statusCode;
+            else if (lastDisconnect && lastDisconnect.error && lastDisconnect.error.data) statusCode = lastDisconnect.error.data.statusCode;
             
-            if (statusCode !== DisconnectReason.loggedOut) {
-                console.log("Reconectando en 5 segundos...");
-                setTimeout(iniciarBot, 5000);
-            } else {
-                console.log("Sesión cerrada manualmente.");
-            }
+            if (statusCode !== DisconnectReason.loggedOut) setTimeout(iniciarBot, 5000);
         } else if (connection === "open") {
             botConectado = true; qrActual = null;
         }
@@ -100,15 +91,10 @@ async function iniciarBot() {
             const comando = args.shift().toLowerCase();
             const esGrupo = chat.endsWith("@g.us");
 
-            // Función rápida para responder con el estilo premium
-            const responder = async (texto) => {
-                await sock.sendMessage(chat, { text: texto }, { quoted: m });
-            };
+            const responder = async (texto) => await sock.sendMessage(chat, { text: texto }, { quoted: m });
 
-            // --- SISTEMA DE PERMISOS ---
             let esAdmin = false;
             let groupMetadata = null;
-            
             if (esGrupo) {
                 groupMetadata = await sock.groupMetadata(chat);
                 const senderId = m.key.participant;
@@ -116,7 +102,6 @@ async function iniciarBot() {
                 esAdmin = senderObj?.admin === 'admin' || senderObj?.admin === 'superadmin';
             }
 
-            // --- CONTROL GLOBAL ---
             if (comando === "start" && esAdmin) { db.pausado = false; guardarDB(); return responder(`${pre} 🟢 *ESTADO:* ONLINE${pie}`); }
             if (comando === "stop" && esAdmin) { db.pausado = true; guardarDB(); return responder(`${pre} 🔴 *ESTADO:* OFFLINE${pie}`); }
             if (db.pausado) return;
@@ -125,60 +110,101 @@ async function iniciarBot() {
             // MÓDULO 1: MENÚS Y SUBMENÚS
             // ==========================================
             if (comando === "menu" || comando === "help") {
+                // URL de imagen robusta
                 const imgUrl = "https://i.imgur.com/OFOwV0Y.jpeg";
-                const menuTxt = `┌───[ 👑 *MASTER SYSTEM* ]───\n` +
+                const menuTxt = `╭─── 👑 *MASTER SYSTEM* ───╮\n` +
                                 `│\n` +
-                                `│ Hola, bienvenido al sistema.\n` +
-                                `│ 🤖 *Bot:* Operativo 24/7\n` +
-                                `│ 🛡️ *Seguridad:* Máxima\n` +
+                                `│ 🤖 *Estado:* Operativo 24/7\n` +
+                                `│ 🛡️ *Sistema:* Blindado\n` +
                                 `│\n` +
-                                `├──────[ 🗂️ CATEGORÍAS ]─────\n` +
+                                `├────── 🗂️ DIRECTORIO ──────\n` +
                                 `│\n` +
                                 `│ 🛒 *.ventas*  › Cuentas y códigos\n` +
-                                `│ ⚙️ *.admin*   › Gestión del grupo\n` +
+                                `│ ⚙️ *.admin*   › Gestión de Grupo\n` +
                                 `│ 🎮 *.juegos*  › Entretenimiento\n` +
                                 `│\n` +
-                                `└───────────────────────\n` +
-                                `_Escribe el comando para abrir el menú._`;
+                                `╰────────────────────────╯\n` +
+                                `_Escribe un comando para abrir._`;
                 try {
-                    await sock.sendMessage(chat, { image: { url: imgUrl }, caption: menuTxt });
+                    await sock.sendMessage(chat, { image: { url: imgUrl }, caption: menuTxt }, { quoted: m });
                 } catch(e) {
-                    await sock.sendMessage(chat, { text: menuTxt }); // Fallback si falla la imagen
+                    await sock.sendMessage(chat, { text: menuTxt }, { quoted: m });
                 }
                 return;
             }
 
             if (comando === "ventas") {
-                const txt = `${pre} 🛒 *MENÚ DE VENTAS*${sep} • *.codigo [correo] [perfil]*\n│ Extrae la ficha del cliente.\n│\n│ • *.pin [plat] [correo]*\n│ Extrae el código OTP en vivo.\n│\n│ • *.pedircodigo*\n│ Formato manual de solicitud.${pie}`;
-                return responder(txt);
+                return responder(`${pre} 🛒 *MENÚ DE VENTAS*${sep} • *.codigo [correo] [perfil]*\n│ Ficha de cuenta del cliente.\n│\n│ • *.pin [plat] [correo]*\n│ Extrae el código OTP en vivo.\n│\n│ • *.pedircodigo*\n│ Plantilla manual de solicitud.${pie}`);
             }
 
             if (comando === "admin") {
-                const txt = `${pre} ⚙️ *MENÚ ADMINISTRADOR*${sep} • *.n [texto]* › Anuncio oficial\n│ • *.kick [@user]* › Expulsar\n│ • *.promover / .degradar*\n│ • *.cerrar / .abrir* › Chat\n│ • *.link* › Enlace del grupo\n│ • *.tagall* › Mención masiva\n│\n│ *Avanzado:*\n│ • *.set / .del* › Comandos extra${pie}`;
-                return responder(txt);
+                return responder(`${pre} ⚙️ *MODERACIÓN VIP*${sep} • *.n [texto]* › Anuncio Oficial\n│ • *.kick [@user]* › Expulsar\n│ • *.promover / .degradar*\n│ • *.cerrar / .abrir* › Chat\n│ • *.link* › Enlace del grupo\n│ • *.tagall* › Mención visible\n│\n│ *Personalización:*\n│ • *.set / .del* › Autorespuestas${pie}`);
             }
 
             if (comando === "juegos") {
-                const txt = `${pre} 🎮 *MENÚ ENTRETENIMIENTO*${sep} • *.dado* › Lanza un dado virtual\n│ • *.moneda* › Cara o Cruz\n│ • *.suerte* › Medidor de suerte\n│ • *.ppt [opción]* › Piedra/Papel/Tijera\n│ • *.ruleta* › Ruleta rusa (Peligro)${pie}`;
-                return responder(txt);
+                return responder(`${pre} 🎮 *ENTRETENIMIENTO*${sep} • *.casino* › Tragamonedas 🎰\n│ • *.dado* › Lanza los dados 🎲\n│ • *.suerte* › Medidor de suerte 🍀\n│ • *.ruleta* › Ruleta Rusa (Peligro) 🔫${pie}`);
             }
 
             // ==========================================
-            // MÓDULO 2: SEGURIDAD Y GRUPOS (AUTOCORREGIDO)
+            // MÓDULO 2: JUEGOS CON ANIMACIÓN VISUAL
             // ==========================================
-            
-            // Cerrar / Abrir Chat (Intenta directo, si falla pide permisos)
+            if (comando === "casino" || comando === "slots") {
+                // Animación: Envía el mensaje y luego lo edita
+                const msg = await sock.sendMessage(chat, { text: `${pre} 🎰 *CASINO MASTER*${sep} Girando rodillos...\n│ [ 🌀 | 🌀 | 🌀 ]${pie}` }, { quoted: m });
+                const emojis = ["🍒", "🔔", "💎", "🍋", "🍉"];
+                
+                setTimeout(async () => {
+                    const r1 = emojis[Math.floor(Math.random() * emojis.length)];
+                    const r2 = emojis[Math.floor(Math.random() * emojis.length)];
+                    const r3 = emojis[Math.floor(Math.random() * emojis.length)];
+                    const win = (r1 === r2 && r2 === r3) ? "¡PREMIO MAYOR! 💰💰💰" : "Sigue intentando... 📉";
+                    await sock.sendMessage(chat, { edit: msg.key, text: `${pre} 🎰 *CASINO MASTER*${sep} Resultado:\n│ [ ${r1} | ${r2} | ${r3} ]\n│\n│ ${win}${pie}` });
+                }, 1500);
+                return;
+            }
+
+            if (comando === "dado") {
+                const msg = await sock.sendMessage(chat, { text: `${pre} 🎲 *LANZAMIENTO*${sep} Agitando el dado... 🌪️${pie}` }, { quoted: m });
+                setTimeout(async () => {
+                    const cara = Math.floor(Math.random() * 6) + 1;
+                    await sock.sendMessage(chat, { edit: msg.key, text: `${pre} 🎲 *LANZAMIENTO*${sep} El dado cayó en: *${cara}* ✅${pie}` });
+                }, 1000);
+                return;
+            }
+
+            if (comando === "ruleta") {
+                if (!esGrupo) return;
+                if (esAdmin) return responder(`${pre} 🛡️ Los Administradores no juegan a la ruleta.${pie}`);
+                
+                const msg = await sock.sendMessage(chat, { text: `${pre} 🔫 *RULETA RUSA*${sep} Girando el tambor... ⚙️${pie}` }, { quoted: m });
+                
+                setTimeout(async () => {
+                    if (Math.floor(Math.random() * 6) + 1 === 1) {
+                        await sock.sendMessage(chat, { edit: msg.key, text: `${pre} 🔫 *RULETA RUSA*${sep} ¡PUM! 💥 Perdiste. Adiós.${pie}` });
+                        try { await sock.groupParticipantsUpdate(chat, [m.key.participant], "remove"); } catch(e) {}
+                    } else {
+                        await sock.sendMessage(chat, { edit: msg.key, text: `${pre} 🔫 *RULETA RUSA*${sep} Click... Te salvaste esta vez. 😅${pie}` });
+                    }
+                }, 2000);
+                return;
+            }
+
+            if (comando === "suerte") {
+                const porc = Math.floor(Math.random() * 101);
+                return responder(`${pre} 🍀 *MEDIDOR DE SUERTE*${sep} Tienes un *${porc}%* de suerte.\n│ _${porc > 80 ? "¡Hoy es tu día!" : porc > 40 ? "Todo normal." : "Mejor no salgas de casa."}_${pie}`);
+            }
+
+            // ==========================================
+            // MÓDULO 3: SEGURIDAD (TRY/CATCH TOTAL)
+            // ==========================================
             if (comando === "cerrar" || comando === "abrir") {
                 if (!esGrupo || !esAdmin) return;
                 const esCerrar = comando === "cerrar";
-                
                 try {
                     await sock.groupSettingUpdate(chat, esCerrar ? "announcement" : "not_announcement");
-                    const msg = `┌───[ 🛡️ *SISTEMA DE SEGURIDAD* ]───\n│\n│ 🔐 *ESTADO:* ${esCerrar ? "RESTRINGIDO" : "PÚBLICO"}\n│ 💬 *CHAT:* ${esCerrar ? "CERRADO 🔴" : "ABIERTO 🟢"}\n│\n└─────────────────────────\n_${esCerrar ? "Solo el personal autorizado puede interactuar." : "Operaciones normales restauradas."}_`;
+                    const msg = `╭─── 🛡️ *SISTEMA DE SEGURIDAD* ───╮\n│\n│ 🔐 *ESTADO:* ${esCerrar ? "RESTRINGIDO" : "PÚBLICO"}\n│ 💬 *CHAT:* ${esCerrar ? "CERRADO 🔴" : "ABIERTO 🟢"}\n│\n╰─────────────────────────╯\n_${esCerrar ? "Solo el personal autorizado puede interactuar." : "Operaciones normales restauradas."}_`;
                     await sock.sendMessage(chat, { text: msg });
-                } catch (error) {
-                    return responder(`${pre} ❌ *ERROR DE PERMISOS*${sep} No puedo hacerlo. Necesitas hacerme Administrador del grupo primero.${pie}`);
-                }
+                } catch (error) { return responder(`${pre} ❌ *ERROR*${sep} Necesitas hacerme Administrador primero.${pie}`); }
                 return;
             }
 
@@ -190,7 +216,7 @@ async function iniciarBot() {
                 if (!txtMsg) return responder(`${pre} ⚠️ *ERROR*${sep} Escribe un mensaje o responde a uno.${pie}`);
                 
                 const fch = new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'long' });
-                const finalTxt = `*${txtMsg}*\n\n| 🛡️️ *${groupMetadata.subject}* • ${fch}`;
+                const finalTxt = `*${txtMsg}*\n\n| 🛡 *${groupMetadata.subject}* • ${fch}`;
                 const mentions = groupMetadata.participants.map(p => p.id);
                 await sock.sendMessage(chat, { text: finalTxt, mentions: mentions });
                 return;
@@ -202,14 +228,12 @@ async function iniciarBot() {
                 if (!target) return responder(`${pre} ⚠️ Menciona o responde al usuario.${pie}`);
                 
                 const targetObj = groupMetadata.participants.find(p => p.id === target);
-                if (targetObj?.admin) return responder(`${pre} 🛡️ *BLINDAJE ACTIVO*${sep} No está permitido expulsar a la Administración.${pie}`);
+                if (targetObj?.admin) return responder(`${pre} 🛡️ *BLINDAJE*${sep} Imposible expulsar Administración.${pie}`);
 
                 try {
                     await sock.groupParticipantsUpdate(chat, [target], "remove");
-                    return responder(`${pre} 👢 *ACCIÓN COMPLETADA*${sep} Usuario eliminado del sistema.${pie}`);
-                } catch (error) {
-                    return responder(`${pre} ❌ *ERROR DE PERMISOS*${sep} Hazme administrador primero.${pie}`);
-                }
+                    return responder(`${pre} 👢 *ACCIÓN COMPLETADA*${sep} Usuario eliminado.${pie}`);
+                } catch (error) { return responder(`${pre} ❌ *ERROR*${sep} Hazme administrador primero.${pie}`); }
             }
 
             if (comando === "promover" || comando === "degradar") {
@@ -217,17 +241,14 @@ async function iniciarBot() {
                 let target = m.message.extendedTextMessage?.contextInfo?.participant || (m.message.extendedTextMessage?.contextInfo?.mentionedJid ? m.message.extendedTextMessage.contextInfo.mentionedJid[0] : null);
                 if (!target) return;
                 
-                if (comando === "degradar") {
-                    const targetObj = groupMetadata.participants.find(p => p.id === target);
-                    if (targetObj?.admin === 'superadmin') return responder(`${pre} 🛡️ *BLINDAJE ACTIVO*${sep} No se puede degradar al Creador del Grupo.${pie}`);
+                if (comando === "degradar" && groupMetadata.participants.find(p => p.id === target)?.admin === 'superadmin') {
+                    return responder(`${pre} 🛡️ *BLINDAJE*${sep} No se puede degradar al Creador.${pie}`);
                 }
 
                 try {
                     await sock.groupParticipantsUpdate(chat, [target], comando === "promover" ? "promote" : "demote");
                     return responder(`${pre} ⚙️ *RANGO ACTUALIZADO*${sep} Usuario ${comando === "promover" ? "Promovido 👑" : "Degradado ⬇️"}.${pie}`);
-                } catch (error) {
-                    return responder(`${pre} ❌ *ERROR DE PERMISOS*${sep} Hazme administrador primero.${pie}`);
-                }
+                } catch (error) { return responder(`${pre} ❌ *ERROR*${sep} Hazme administrador primero.${pie}`); }
             }
 
             if (comando === "link") {
@@ -235,25 +256,20 @@ async function iniciarBot() {
                 try {
                     const code = await sock.groupInviteCode(chat);
                     return responder(`${pre} 🔗 *ENLACE OFICIAL*${sep} https://chat.whatsapp.com/${code}${pie}`);
-                } catch (error) {
-                    return responder(`${pre} ❌ *ERROR DE PERMISOS*${sep} Hazme administrador primero.${pie}`);
-                }
+                } catch (error) { return responder(`${pre} ❌ *ERROR*${sep} Hazme administrador primero.${pie}`); }
             }
 
             if (comando === "tagall") {
                 if (!esGrupo || !esAdmin) return;
-                let msgTag = `┌───[ 📢 *LLAMADO GENERAL* ]───\n│\n`;
-                const menciones = groupMetadata.participants.map(p => {
-                    msgTag += `│ • @${p.id.split("@")[0]}\n`;
-                    return p.id;
-                });
-                msgTag += `│\n└───────────────────────`;
+                let msgTag = `╭─── 📢 *LLAMADO GENERAL* ───╮\n│\n`;
+                const menciones = groupMetadata.participants.map(p => { msgTag += `│ • @${p.id.split("@")[0]}\n`; return p.id; });
+                msgTag += `│\n╰───────────────────────╯`;
                 await sock.sendMessage(chat, { text: msgTag, mentions: menciones });
                 return;
             }
 
             // ==========================================
-            // MÓDULO 3: INTEGRACIÓN MASTER STREAMING
+            // MÓDULO 4: INTEGRACIÓN MASTER STREAMING
             // ==========================================
             if (comando === "codigo") {
                 const correo = args[0] ? args[0].trim().toLowerCase() : "";
@@ -265,11 +281,9 @@ async function iniciarBot() {
                     const res = await fetch(`${APPS_SCRIPT_URL}?correo=${encodeURIComponent(correo)}&perfil=${encodeURIComponent(perfil)}`);
                     const data = await res.json();
                     if (data?.ok) {
-                        const f = `┌───[ 📋 *FICHA DE ATENCIÓN* ]───\n│\n│ 🎬 *Servicio:* ${data.plataforma}\n│ 📧 *Cuenta:* ${data.correo}\n│ 👤 *Perfil:* ${data.perfil}\n│ 📅 *Vence:* ${data.vence}\n│\n├───────────────────────\n│ 📸 *FOTO REQUERIDA*\n│ _Por favor, envía la captura._\n└───────────────────────`;
+                        const f = `╭─── 📋 *FICHA DE ATENCIÓN* ───╮\n│\n│ 🎬 *Servicio:* ${data.plataforma}\n│ 📧 *Cuenta:* ${data.correo}\n│ 👤 *Perfil:* ${data.perfil}\n│ 📅 *Vence:* ${data.vence}\n│\n├───────────────────────\n│ 📸 *FOTO REQUERIDA*\n│ _Por favor, envía la captura._\n╰───────────────────────╯`;
                         await sock.sendMessage(chat, { text: f }, { quoted: m });
-                    } else {
-                        responder(`${pre} ❌ *NO ENCONTRADO*${sep} ${data.error || "No existe en el inventario."}${pie}`);
-                    }
+                    } else { responder(`${pre} ❌ *NO ENCONTRADO*${sep} ${data.error || "No existe."}${pie}`); }
                 } catch (e) { responder(`${pre} ⚠️ Error de servidor.${pie}`); }
                 return;
             }
@@ -278,60 +292,24 @@ async function iniciarBot() {
                 const plat = args[0]?.trim().toLowerCase();
                 const corr = args[1]?.trim().toLowerCase();
                 const sub = args[2] ? args[2].trim().toLowerCase() : "4dig";
-                if (!plat || !corr?.includes("@")) return responder(`${pre} ⚠ *ERROR DE FORMATO*${sep} Uso: .pin [plat] [correo]${pie}`);
+                if (!plat || !corr?.includes("@")) return responder(`${pre} ⚠ *FORMATO*${sep} Uso: .pin [plat] [correo]${pie}`);
 
                 await responder(`${pre} ⏳ *${plat.toUpperCase()}* | Extrayendo en vivo...${pie}`);
                 try {
                     const res = await fetch(`${APPS_SCRIPT_URL}?accion=extraer&plataforma=${encodeURIComponent(plat)}&correo=${encodeURIComponent(corr)}&subtipo=${encodeURIComponent(sub)}`);
                     const data = await res.json();
                     if (data?.ok) {
-                        let ok = `┌───[ ✅ *CÓDIGO RECIBIDO* ]───\n│\n│ 📺 *Servicio:* ${data.type || plat.toUpperCase()}\n│ 🔑 *Código OTP:* *${data.code}*\n`;
+                        let ok = `╭─── ✅ *CÓDIGO RECIBIDO* ───╮\n│\n│ 📺 *Servicio:* ${data.type || plat.toUpperCase()}\n│ 🔑 *Código OTP:* *${data.code}*\n`;
                         if (data.link) ok += `│ 🔗 *Hogar:* ${data.link}\n`;
-                        ok += `│\n└───────────────────────`;
+                        ok += `│\n╰───────────────────────╯`;
                         await sock.sendMessage(chat, { text: ok }, { quoted: m });
-                    } else {
-                        responder(`${pre} ❌ *ERROR DE EXTRACCIÓN*${sep} ${data.error || "Código caducado o no recibido."}${pie}`);
-                    }
+                    } else { responder(`${pre} ❌ *ERROR*${sep} ${data.error || "Código caducado."}${pie}`); }
                 } catch (e) { responder(`${pre} ⚠️ Error de servidor.${pie}`); }
                 return;
             }
 
             if (comando === "pedircodigo" || comando === "ficha") {
-                const manual = `┌───[ 📋 *SOLICITUD MANUAL* ]───\n│\n│ • *Plataforma:* \n│ • *Correo:* \n│ • *Perfil:* \n│ • *Foto:* (Adjuntar)\n│\n└───────────────────────`;
-                return responder(manual);
-            }
-
-            // ==========================================
-            // MÓDULO 4: JUEGOS Y ENTRETENIMIENTO
-            // ==========================================
-            if (comando === "dado") return responder(`${pre} 🎲 *DADO VIRTUAL*${sep} El dado cayó en: *${Math.floor(Math.random() * 6) + 1}*${pie}`);
-            if (comando === "moneda") return responder(`${pre} 🪙 *CARA O CRUZ*${sep} La moneda cayó en: *${Math.random() < 0.5 ? "ÁGUILA 🦅" : "SOL ☀️"}*${pie}`);
-            if (comando === "suerte") {
-                const porc = Math.floor(Math.random() * 101);
-                return responder(`${pre} 🍀 *MEDIDOR DE SUERTE*${sep} Tienes un *${porc}%* de suerte.\n│ _${porc > 80 ? "¡Excelente!" : porc > 40 ? "Normal" : "Pésima suerte hoy."}_${pie}`);
-            }
-            if (comando === "ppt") {
-                const botOp = ["piedra", "papel", "tijera"][Math.floor(Math.random() * 3)];
-                const userOp = args[0]?.toLowerCase();
-                if (!["piedra", "papel", "tijera"].includes(userOp)) return responder(`${pre} ⚠️ Uso: .ppt [piedra/papel/tijera]${pie}`);
-                let res = "EMPATE 🤝";
-                if ((userOp === "piedra" && botOp === "tijera") || (userOp === "papel" && botOp === "piedra") || (userOp === "tijera" && botOp === "papel")) res = "¡GANASTE! 🎉";
-                else if (userOp !== botOp) res = "PERDISTE 💀";
-                return responder(`${pre} 🎮 *PIEDRA, PAPEL O TIJERA*${sep} Tú: ${userOp}\n│ Bot: ${botOp}\n│\n│ *Resultado:* ${res}${pie}`);
-            }
-            if (comando === "ruleta") {
-                if (!esGrupo) return;
-                const botId = jidNormalizedUser(sock.user.id);
-                const botObj = groupMetadata.participants.find(p => p.id === botId);
-                if (!botObj?.admin) return responder(`${pre} ❌ Necesito ser Admin para jugar a la ruleta rusa.${pie}`);
-                if (esAdmin) return responder(`${pre} 🛡️️ Los Administradores no juegan a la ruleta.${pie}`);
-                
-                if (Math.floor(Math.random() * 6) + 1 === 1) {
-                    await responder(`${pre} 🔫 *RULETA RUSA*${sep} ¡PUM! Has perdido. Adiós.${pie}`);
-                    await sock.groupParticipantsUpdate(chat, [m.key.participant], "remove");
-                } else {
-                    return responder(`${pre} 🔫 *RULETA RUSA*${sep} Click... Te salvaste esta vez.${pie}`);
-                }
+                return responder(`╭─── 📋 *SOLICITUD MANUAL* ───╮\n│\n│ • *Plataforma:* \n│ • *Correo:* \n│ • *Perfil:* \n│ • *Foto:* (Adjuntar)\n│\n╰───────────────────────╯`);
             }
 
             // ==========================================
@@ -339,7 +317,7 @@ async function iniciarBot() {
             // ==========================================
             if (comando === "set" && esAdmin) {
                 const nCmd = args.shift()?.toLowerCase();
-                if (!nCmd || !args.length) return responder(`${pre} ⚠️️ Uso: .set [nombre] [texto]${pie}`);
+                if (!nCmd || !args.length) return responder(`${pre} ⚠ Uso: .set [nombre] [texto]${pie}`);
                 db.comandos[nCmd] = args.join(" "); guardarDB();
                 return responder(`${pre} ✅ *COMANDO CREADO*${sep} Se guardó \`.${nCmd}\`${pie}`);
             }
@@ -349,11 +327,11 @@ async function iniciarBot() {
                 delete db.comandos[nCmd]; guardarDB();
                 return responder(`${pre} 🗑️ *COMANDO ELIMINADO*${sep} \`.${nCmd}\` borrado.${pie}`);
             }
-            if (db.comandos[comando]) return responder(`┌───[ 💡 *INFORMACIÓN* ]───\n│\n│ ${db.comandos[comando]}\n│\n└───────────────────`);
+            if (db.comandos[comando]) return responder(`╭─── 💡 *INFORMACIÓN* ───╮\n│\n│ ${db.comandos[comando]}\n│\n╰───────────────────╯`);
             
             if (comando === "ping") {
                 const latencia = Date.now() - (m.messageTimestamp * 1000);
-                return responder(`┌───[ 🏓 *LATENCIA* ]───\n│\n│ 🚀 Velocidad de red:\n│ ~${latencia}ms\n│\n└───────────────────`);
+                return responder(`╭─── 🏓 *LATENCIA* ───╮\n│\n│ 🚀 Velocidad de red:\n│ ~${latencia}ms\n│\n╰───────────────────╯`);
             }
 
         } catch (error) { console.error("Error procesando mensaje:", error); }
