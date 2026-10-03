@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require("@whiskeysockets/baileys");
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, jidNormalizedUser } = require("@whiskeysockets/baileys");
 const pino = require("pino");
 const express = require("express");
 const QRCode = require("qrcode");
@@ -110,8 +110,6 @@ async function iniciarBot() {
             // MÓDULO 1: MENÚS Y SUBMENÚS
             // ==========================================
             if (comando === "menu" || comando === "help") {
-                // URL de imagen robusta
-                const imgUrl = "https://i.imgur.com/OFOwV0Y.jpeg";
                 const menuTxt = `╭─── 👑 *MASTER SYSTEM* ───╮\n` +
                                 `│\n` +
                                 `│ 🤖 *Estado:* Operativo 24/7\n` +
@@ -125,10 +123,23 @@ async function iniciarBot() {
                                 `│\n` +
                                 `╰────────────────────────╯\n` +
                                 `_Escribe un comando para abrir._`;
+                
+                // Imagen de respaldo por si falla la descarga
+                let imgUrl = "https://i.imgur.com/OFOwV0Y.jpeg"; 
+                
+                try {
+                    // Extrae el ID real del bot y busca su foto de perfil actual en WhatsApp
+                    const botJid = jidNormalizedUser(sock.user.id);
+                    const profilePic = await sock.profilePictureUrl(botJid, 'image');
+                    if (profilePic) imgUrl = profilePic;
+                } catch (e) {
+                    console.log("No se pudo obtener la foto de perfil, usando respaldo.");
+                }
+
                 try {
                     await sock.sendMessage(chat, { image: { url: imgUrl }, caption: menuTxt }, { quoted: m });
                 } catch(e) {
-                    await sock.sendMessage(chat, { text: menuTxt }, { quoted: m });
+                    await sock.sendMessage(chat, { text: menuTxt }, { quoted: m }); // Fallback si todo falla
                 }
                 return;
             }
@@ -149,7 +160,6 @@ async function iniciarBot() {
             // MÓDULO 2: JUEGOS CON ANIMACIÓN VISUAL
             // ==========================================
             if (comando === "casino" || comando === "slots") {
-                // Animación: Envía el mensaje y luego lo edita
                 const msg = await sock.sendMessage(chat, { text: `${pre} 🎰 *CASINO MASTER*${sep} Girando rodillos...\n│ [ 🌀 | 🌀 | 🌀 ]${pie}` }, { quoted: m });
                 const emojis = ["🍒", "🔔", "💎", "🍋", "🍉"];
                 
