@@ -322,22 +322,69 @@ async function iniciarBot() {
                 return responder(`╭─── 📋 *SOLICITUD MANUAL* ───╮\n│\n│ • *Plataforma:* \n│ • *Correo:* \n│ • *Perfil:* \n│ • *Foto:* (Adjuntar)\n│\n╰───────────────────────╯`);
             }
 
+           // ==========================================
+            // MÓDULO 5: RENTA DE BOT (MULTI-GRUPOS) Y .SET
             // ==========================================
-            // MÓDULO 5: COMANDOS EXTRA (.set / .del) / PING
-            // ==========================================
+            
+            // 1. Comando .activar (Solo el Administrador del grupo puede hacerlo)
+            if (comando === "activar") {
+                if (!esGrupo || !esAdmin) return responder(`${pre} ⛔ *ACCESO DENEGADO*${sep} Solo administradores del grupo pueden activar el bot.${pie}`);
+                
+                // Si el grupo no existe en la base de datos, le creamos su "cajón"
+                if (!db[chat]) db[chat] = { comandos: {} };
+                guardarDB();
+                
+                return responder(`${pre} ✅ *SISTEMA ACTIVADO*${sep} Bot vinculado exitosamente a este grupo.\n│ Todos los datos guardados aquí serán privados y exclusivos.${pie}`);
+            }
+
+            // 2. Comando .set (Guardar datos aislados por grupo)
             if (comando === "set" && esAdmin) {
                 const nCmd = args.shift()?.toLowerCase();
                 if (!nCmd || !args.length) return responder(`${pre} ⚠ Uso: .set [nombre] [texto]${pie}`);
-                db.comandos[nCmd] = args.join(" "); guardarDB();
-                return responder(`${pre} ✅ *COMANDO CREADO*${sep} Se guardó \`.${nCmd}\`${pie}`);
+                
+                // Verificar si el grupo ya activó el bot
+                if (esGrupo && !db[chat]) return responder(`${pre} ⛔ *SISTEMA INACTIVO*${sep} Debes escribir \`.activar\` para iniciar tu base de datos privada.${pie}`);
+                
+                const textoGuardar = args.join(" ");
+                
+                if (esGrupo) {
+                    // Guarda en el cajón privado del grupo
+                    db[chat].comandos[nCmd] = textoGuardar; 
+                } else {
+                    // Guarda en el cajón global (tus chats privados)
+                    db.comandos[nCmd] = textoGuardar; 
+                }
+                
+                guardarDB();
+                return responder(`${pre} ✅ *GUARDADO EXITOSO*${sep} Comando \`.${nCmd}\` actualizado.${pie}`);
             }
+
+            // 3. Comando .del (Borrar datos aislados)
             if (comando === "del" && esAdmin) {
                 const nCmd = args[0]?.toLowerCase();
-                if (!db.comandos[nCmd]) return responder(`${pre} ⚠️ El comando no existe.${pie}`);
-                delete db.comandos[nCmd]; guardarDB();
-                return responder(`${pre} 🗑️ *COMANDO ELIMINADO*${sep} \`.${nCmd}\` borrado.${pie}`);
+                if (esGrupo && db[chat] && db[chat].comandos[nCmd]) {
+                    delete db[chat].comandos[nCmd];
+                    guardarDB();
+                    return responder(`${pre} 🗑️ *COMANDO ELIMINADO*${sep} \`.${nCmd}\` borrado de este grupo.${pie}`);
+                } else if (!esGrupo && db.comandos[nCmd]) {
+                    delete db.comandos[nCmd];
+                    guardarDB();
+                    return responder(`${pre} 🗑️ *COMANDO ELIMINADO GLOBAL*${sep} \`.${nCmd}\` borrado.${pie}`);
+                }
+                return responder(`${pre} ⚠️ El comando no existe.${pie}`);
             }
-            if (db.comandos[comando]) return responder(`╭─── 💡 *INFORMACIÓN* ───╮\n│\n│ ${db.comandos[comando]}\n│\n╰───────────────────╯`);
+
+            // 4. Leer los comandos (Verificar primero en el grupo, luego en lo global)
+            let respuestaComando = null;
+            if (esGrupo && db[chat] && db[chat].comandos[comando]) {
+                respuestaComando = db[chat].comandos[comando]; // Lee el del cliente
+            } else if (db.comandos[comando]) {
+                respuestaComando = db.comandos[comando]; // Lee los tuyos globales por defecto
+            }
+
+            if (respuestaComando) {
+                return responder(`╭─── 💡 *INFORMACIÓN* ───╮\n│\n│ ${respuestaComando}\n│\n╰───────────────────╯`);
+            }
             
             if (comando === "ping") {
                 const latencia = Date.now() - (m.messageTimestamp * 1000);
