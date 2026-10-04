@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, jidNormalizedUser } = require("@whiskeysockets/baileys");
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, jidNormalizedUser, downloadContentFromMessage } = require("@whiskeysockets/baileys");
 const pino = require("pino");
 const express = require("express");
 const QRCode = require("qrcode");
@@ -48,7 +48,6 @@ function obtenerTextoMensaje(m) {
     return (msg.conversation || msg.extendedTextMessage?.text || msg.imageMessage?.caption || msg.videoMessage?.caption || "").trim();
 }
 
-// Plantilla de diseño redondeada y limpia
 const pre = "╭─── 👑 *MASTER PRO* ───╮\n│";
 const sep = "\n├───────────────────────\n│";
 const pie = "\n╰───────────────────────╯\n";
@@ -124,23 +123,15 @@ async function iniciarBot() {
                                 `╰────────────────────────╯\n` +
                                 `_Escribe un comando para abrir._`;
                 
-                // Imagen de respaldo por si falla la descarga
                 let imgUrl = "https://i.imgur.com/OFOwV0Y.jpeg"; 
-                
                 try {
-                    // Extrae el ID real del bot y busca su foto de perfil actual en WhatsApp
                     const botJid = jidNormalizedUser(sock.user.id);
                     const profilePic = await sock.profilePictureUrl(botJid, 'image');
                     if (profilePic) imgUrl = profilePic;
-                } catch (e) {
-                    console.log("No se pudo obtener la foto de perfil, usando respaldo.");
-                }
+                } catch (e) { }
 
-                try {
-                    await sock.sendMessage(chat, { image: { url: imgUrl }, caption: menuTxt }, { quoted: m });
-                } catch(e) {
-                    await sock.sendMessage(chat, { text: menuTxt }, { quoted: m }); // Fallback si todo falla
-                }
+                try { await sock.sendMessage(chat, { image: { url: imgUrl }, caption: menuTxt }, { quoted: m }); } 
+                catch(e) { await sock.sendMessage(chat, { text: menuTxt }, { quoted: m }); }
                 return;
             }
 
@@ -149,20 +140,19 @@ async function iniciarBot() {
             }
 
             if (comando === "admin") {
-                return responder(`${pre} ⚙️ *MODERACIÓN VIP*${sep} • *.n [texto]* › Anuncio Oficial\n│ • *.kick [@user]* › Expulsar\n│ • *.promover / .degradar*\n│ • *.cerrar / .abrir* › Chat\n│ • *.link* › Enlace del grupo\n│ • *.tagall* › Mención visible\n│\n│ *Personalización:*\n│ • *.set / .del* › Autorespuestas${pie}`);
+                return responder(`${pre} ⚙️ *MODERACIÓN VIP*${sep} • *.n [texto]* › Anuncio (Sin arrobas)\n│ • *.ntodos [texto]* › Anuncio a TODOS\n│ • *.kick [@user]* › Expulsar\n│ • *.promover / .degradar*\n│ • *.cerrar / .abrir* › Chat\n│ • *.link* › Enlace del grupo\n│ • *.tagall* › Mención visible\n│\n│ *Personalización (Renta):*\n│ • *.activar* › Iniciar base de datos\n│ • *.set / .del* › Autorespuestas${pie}`);
             }
 
             if (comando === "juegos") {
-                return responder(`${pre} 🎮 *ENTRETENIMIENTO*${sep} • *.casino* › Tragamonedas 🎰\n│ • *.dado* › Lanza los dados 🎲\n│ • *.suerte* › Medidor de suerte 🍀\n│ • *.ruleta* › Ruleta Rusa (Peligro) 🔫${pie}`);
+                return responder(`${pre} 🎮 *ENTRETENIMIENTO*${sep} • *.casino* › Tragamonedas 🎰\n│ • *.dado* › Lanza los dados 🎲\n│ • *.suerte* › Medidor de suerte 🍀\n│ • *.ruleta* › Ruleta Rusa 🔫\n│ • *.doxeo [@user]* › Hackeo Falso 💻\n│ • *.calentura / .pajero* › Test 🌡️\n│ • *.ship / .parejas* › Cupido 💘\n│ • *.piropo* › Frases de amor 😘${pie}`);
             }
 
             // ==========================================
-            // MÓDULO 2: JUEGOS CON ANIMACIÓN VISUAL
+            // MÓDULO 2: JUEGOS Y HUMOR NEGRO
             // ==========================================
             if (comando === "casino" || comando === "slots") {
                 const msg = await sock.sendMessage(chat, { text: `${pre} 🎰 *CASINO MASTER*${sep} Girando rodillos...\n│ [ 🌀 | 🌀 | 🌀 ]${pie}` }, { quoted: m });
                 const emojis = ["🍒", "🔔", "💎", "🍋", "🍉"];
-                
                 setTimeout(async () => {
                     const r1 = emojis[Math.floor(Math.random() * emojis.length)];
                     const r2 = emojis[Math.floor(Math.random() * emojis.length)];
@@ -185,9 +175,7 @@ async function iniciarBot() {
             if (comando === "ruleta") {
                 if (!esGrupo) return;
                 if (esAdmin) return responder(`${pre} 🛡️ Los Administradores no juegan a la ruleta.${pie}`);
-                
                 const msg = await sock.sendMessage(chat, { text: `${pre} 🔫 *RULETA RUSA*${sep} Girando el tambor... ⚙️${pie}` }, { quoted: m });
-                
                 setTimeout(async () => {
                     if (Math.floor(Math.random() * 6) + 1 === 1) {
                         await sock.sendMessage(chat, { edit: msg.key, text: `${pre} 🔫 *RULETA RUSA*${sep} ¡PUM! 💥 Perdiste. Adiós.${pie}` });
@@ -204,8 +192,50 @@ async function iniciarBot() {
                 return responder(`${pre} 🍀 *MEDIDOR DE SUERTE*${sep} Tienes un *${porc}%* de suerte.\n│ _${porc > 80 ? "¡Hoy es tu día!" : porc > 40 ? "Todo normal." : "Mejor no salgas de casa."}_${pie}`);
             }
 
+            if (comando === "doxeo" || comando === "doxxear") {
+                let target = m.message.extendedTextMessage?.contextInfo?.participant || (m.message.extendedTextMessage?.contextInfo?.mentionedJid ? m.message.extendedTextMessage.contextInfo.mentionedJid[0] : null);
+                let tag = target ? `@${target.split("@")[0]}` : "este usuario";
+                const ip = `${Math.floor(Math.random()*255)}.${Math.floor(Math.random()*255)}.${Math.floor(Math.random()*255)}.${Math.floor(Math.random()*255)}`;
+                const call = await sock.sendMessage(chat, { text: `${pre} ☠️ *INICIANDO DOXEO* ☠️${sep} 🔎 Rastreando la IP de ${tag}...${pie}`, mentions: target ? [target] : [] });
+                setTimeout(async () => {
+                    await sock.sendMessage(chat, { edit: call.key, text: `${pre} ☠️ *DOXEO COMPLETADO* ☠️${sep} 👤 *Objetivo:* ${tag}\n📡 *IP:* ${ip}\n📍 *Ubicación:* Ecatepec, Estado de México\n🌐 *Compañía:* Totalplay (Debe 2 meses)\n📱 *Dispositivo:* Android con pantalla rota\n💳 *Tarjeta:* 4152 31** **** 9821\n\n_Tus datos han sido subidos a la Dark Web._${pie}`, mentions: target ? [target] : [] });
+                }, 2500);
+                return;
+            }
+
+            if (comando === "calentura" || comando === "pajero" || comando === "lesbiometro") {
+                let target = m.message.extendedTextMessage?.contextInfo?.participant || (m.message.extendedTextMessage?.contextInfo?.mentionedJid ? m.message.extendedTextMessage.contextInfo.mentionedJid[0] : null);
+                let tag = target ? `@${target.split("@")[0]}` : "este usuario";
+                const nivel = Math.floor(Math.random() * 101);
+                let titulo = comando.toUpperCase();
+                let diag = nivel > 80 ? "🔥 ¡Báñate con agua fría, enfermo!" : nivel > 40 ? "😏 Andas en el punto exacto." : "🧊 Eres un tempano de hielo.";
+                return await sock.sendMessage(chat, { text: `${pre} 🌡️ *TEST DE ${titulo}* 🌡️${sep} Analizando a ${tag}...\n\n📊 *Nivel detectado:* ${nivel}%\n🩺 *Diagnóstico:* ${diag}${pie}`, mentions: target ? [target] : [] });
+            }
+
+            if (comando === "ship" || comando === "parejas") {
+                if (!esGrupo) return responder(`${pre} ⚠️ Este comando solo funciona en grupos.${pie}`);
+                const miembros = groupMetadata.participants.map(p => p.id);
+                const miembrosReales = miembros.filter(id => id !== sock.user.id.split(":")[0]+"@s.whatsapp.net");
+                const user1 = miembrosReales[Math.floor(Math.random() * miembrosReales.length)];
+                const user2 = miembrosReales[Math.floor(Math.random() * miembrosReales.length)];
+                return await sock.sendMessage(chat, { text: `${pre} 💘 *NUEVA PAREJA DETECTADA* 💘${sep} El sistema ha detectado tensión sexual entre:\n\n👉 @${user1.split("@")[0]}\n👉 @${user2.split("@")[0]}\n\n¡Ya bésense y dejen el drama! 👩‍❤️‍💋‍👨${pie}`, mentions: [user1, user2] });
+            }
+
+            if (comando === "piropo") {
+                const piropos = [
+                    "Si la belleza fuera delito, yo te daría cadena perpetua. 😘",
+                    "¿Crees en el amor a primera vista o vuelvo a pasar? 😉",
+                    "No soy donante de órganos, pero te doy mi corazón. ❤️",
+                    "Quien fuera sol para darte todo el día. ☀️",
+                    "Me gustas más que dormir hasta tarde y sin alarma. 😴",
+                    "Estás como para invitarte a comer taquitos al pastor. 🌮"
+                ];
+                const random = piropos[Math.floor(Math.random() * piropos.length)];
+                return responder(`${pre} 😏 *PIROPO* 😏${sep} ${random}${pie}`);
+            }
+
             // ==========================================
-            // MÓDULO 3: SEGURIDAD (TRY/CATCH TOTAL)
+            // MÓDULO 3: SEGURIDAD Y ANUNCIOS (N Y NTODOS)
             // ==========================================
             if (comando === "cerrar" || comando === "abrir") {
                 if (!esGrupo || !esAdmin) return;
@@ -218,17 +248,49 @@ async function iniciarBot() {
                 return;
             }
 
-            if (comando === "n" || comando === "anuncio") {
+            if (comando === "n" || comando === "ntodos") {
                 if (!esGrupo || !esAdmin) return responder(`${pre} ⛔ *ACCESO DENEGADO*${sep} Solo administradores.${pie}`);
+                
                 let txtMsg = args.join(" ");
-                const qMsg = m.message.extendedTextMessage?.contextInfo?.quotedMessage;
-                if (!txtMsg && qMsg) txtMsg = qMsg.conversation || qMsg.extendedTextMessage?.text || "";
-                if (!txtMsg) return responder(`${pre} ⚠️ *ERROR*${sep} Escribe un mensaje o responde a uno.${pie}`);
+                let isQuoted = m.message.extendedTextMessage?.contextInfo?.quotedMessage;
+                
+                // Si no hay texto, lo busca en el mensaje respondido o en el pie de foto
+                if (!txtMsg && isQuoted) txtMsg = isQuoted.conversation || isQuoted.extendedTextMessage?.text || isQuoted.imageMessage?.caption || isQuoted.videoMessage?.caption || "";
+                if (!txtMsg && !isQuoted && !m.message.imageMessage && !m.message.videoMessage) return responder(`${pre} ⚠️ *ERROR*${sep} Escribe un mensaje o responde a una imagen.${pie}`);
                 
                 const fch = new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'long' });
                 const finalTxt = `*${txtMsg}*\n\n| 🛡 *${groupMetadata.subject}* • ${fch}`;
-                const mentions = groupMetadata.participants.map(p => p.id);
-                await sock.sendMessage(chat, { text: finalTxt, mentions: mentions });
+                
+                // Si es .ntodos, hace la lista de menciones; si es .n, la deja vacía (no suena el celular de los demás)
+                const menciones = comando === "ntodos" ? groupMetadata.participants.map(p => p.id) : [];
+
+                try {
+                    let buffer = null;
+                    let msgType = null;
+                    // Detecta si enviaste una imagen directa o respondiste a una
+                    if (m.message.imageMessage || m.message.videoMessage) {
+                        msgType = m.message.imageMessage ? 'image' : 'video';
+                        const stream = await downloadContentFromMessage(m.message[msgType + 'Message'], msgType);
+                        buffer = Buffer.from([]);
+                        for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
+                    } else if (isQuoted && (isQuoted.imageMessage || isQuoted.videoMessage)) {
+                        msgType = isQuoted.imageMessage ? 'image' : 'video';
+                        const stream = await downloadContentFromMessage(isQuoted[msgType + 'Message'], msgType);
+                        buffer = Buffer.from([]);
+                        for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
+                    }
+
+                    // Envía la imagen con el texto integrado, o solo texto si no hubo imagen
+                    if (buffer) {
+                        if (msgType === 'image') await sock.sendMessage(chat, { image: buffer, caption: finalTxt, mentions: menciones });
+                        else await sock.sendMessage(chat, { video: buffer, caption: finalTxt, mentions: menciones });
+                    } else {
+                        await sock.sendMessage(chat, { text: finalTxt, mentions: menciones });
+                    }
+                } catch (e) {
+                    console.error("Error al enviar multimedia en anuncio:", e);
+                    await sock.sendMessage(chat, { text: finalTxt, mentions: menciones }); 
+                }
                 return;
             }
 
@@ -236,10 +298,8 @@ async function iniciarBot() {
                 if (!esGrupo || !esAdmin) return responder(`${pre} ⛔ Solo administradores.${pie}`);
                 let target = m.message.extendedTextMessage?.contextInfo?.participant || (m.message.extendedTextMessage?.contextInfo?.mentionedJid ? m.message.extendedTextMessage.contextInfo.mentionedJid[0] : null);
                 if (!target) return responder(`${pre} ⚠️ Menciona o responde al usuario.${pie}`);
-                
                 const targetObj = groupMetadata.participants.find(p => p.id === target);
                 if (targetObj?.admin) return responder(`${pre} 🛡️ *BLINDAJE*${sep} Imposible expulsar Administración.${pie}`);
-
                 try {
                     await sock.groupParticipantsUpdate(chat, [target], "remove");
                     return responder(`${pre} 👢 *ACCIÓN COMPLETADA*${sep} Usuario eliminado.${pie}`);
@@ -250,11 +310,9 @@ async function iniciarBot() {
                 if (!esGrupo || !esAdmin) return;
                 let target = m.message.extendedTextMessage?.contextInfo?.participant || (m.message.extendedTextMessage?.contextInfo?.mentionedJid ? m.message.extendedTextMessage.contextInfo.mentionedJid[0] : null);
                 if (!target) return;
-                
                 if (comando === "degradar" && groupMetadata.participants.find(p => p.id === target)?.admin === 'superadmin') {
                     return responder(`${pre} 🛡️ *BLINDAJE*${sep} No se puede degradar al Creador.${pie}`);
                 }
-
                 try {
                     await sock.groupParticipantsUpdate(chat, [target], comando === "promover" ? "promote" : "demote");
                     return responder(`${pre} ⚙️ *RANGO ACTUALIZADO*${sep} Usuario ${comando === "promover" ? "Promovido 👑" : "Degradado ⬇️"}.${pie}`);
@@ -322,44 +380,29 @@ async function iniciarBot() {
                 return responder(`╭─── 📋 *SOLICITUD MANUAL* ───╮\n│\n│ • *Plataforma:* \n│ • *Correo:* \n│ • *Perfil:* \n│ • *Foto:* (Adjuntar)\n│\n╰───────────────────────╯`);
             }
 
-           // ==========================================
+            // ==========================================
             // MÓDULO 5: RENTA DE BOT (MULTI-GRUPOS) Y .SET
             // ==========================================
-            
-            // 1. Comando .activar (Solo el Administrador del grupo puede hacerlo)
             if (comando === "activar") {
                 if (!esGrupo || !esAdmin) return responder(`${pre} ⛔ *ACCESO DENEGADO*${sep} Solo administradores del grupo pueden activar el bot.${pie}`);
-                
-                // Si el grupo no existe en la base de datos, le creamos su "cajón"
                 if (!db[chat]) db[chat] = { comandos: {} };
                 guardarDB();
-                
                 return responder(`${pre} ✅ *SISTEMA ACTIVADO*${sep} Bot vinculado exitosamente a este grupo.\n│ Todos los datos guardados aquí serán privados y exclusivos.${pie}`);
             }
 
-            // 2. Comando .set (Guardar datos aislados por grupo)
             if (comando === "set" && esAdmin) {
                 const nCmd = args.shift()?.toLowerCase();
                 if (!nCmd || !args.length) return responder(`${pre} ⚠ Uso: .set [nombre] [texto]${pie}`);
-                
-                // Verificar si el grupo ya activó el bot
                 if (esGrupo && !db[chat]) return responder(`${pre} ⛔ *SISTEMA INACTIVO*${sep} Debes escribir \`.activar\` para iniciar tu base de datos privada.${pie}`);
                 
                 const textoGuardar = args.join(" ");
-                
-                if (esGrupo) {
-                    // Guarda en el cajón privado del grupo
-                    db[chat].comandos[nCmd] = textoGuardar; 
-                } else {
-                    // Guarda en el cajón global (tus chats privados)
-                    db.comandos[nCmd] = textoGuardar; 
-                }
+                if (esGrupo) db[chat].comandos[nCmd] = textoGuardar; 
+                else db.comandos[nCmd] = textoGuardar; 
                 
                 guardarDB();
                 return responder(`${pre} ✅ *GUARDADO EXITOSO*${sep} Comando \`.${nCmd}\` actualizado.${pie}`);
             }
 
-            // 3. Comando .del (Borrar datos aislados)
             if (comando === "del" && esAdmin) {
                 const nCmd = args[0]?.toLowerCase();
                 if (esGrupo && db[chat] && db[chat].comandos[nCmd]) {
@@ -374,13 +417,9 @@ async function iniciarBot() {
                 return responder(`${pre} ⚠️ El comando no existe.${pie}`);
             }
 
-            // 4. Leer los comandos (Verificar primero en el grupo, luego en lo global)
             let respuestaComando = null;
-            if (esGrupo && db[chat] && db[chat].comandos[comando]) {
-                respuestaComando = db[chat].comandos[comando]; // Lee el del cliente
-            } else if (db.comandos[comando]) {
-                respuestaComando = db.comandos[comando]; // Lee los tuyos globales por defecto
-            }
+            if (esGrupo && db[chat] && db[chat].comandos[comando]) respuestaComando = db[chat].comandos[comando];
+            else if (db.comandos[comando]) respuestaComando = db.comandos[comando]; 
 
             if (respuestaComando) {
                 return responder(`╭─── 💡 *INFORMACIÓN* ───╮\n│\n│ ${respuestaComando}\n│\n╰───────────────────╯`);
