@@ -12,6 +12,9 @@ const PORT = process.env.PORT || 3000;
 const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwsfiLlP7ot1DSHiyLfBdXEMI_6sbt9fD0MXxynwGqPG-HDZPpTLiWffxzrFFLP5Nrl/exec";
 const DB_PATH = "./auth_session/database.json";
 
+// BLINDAJE DE SEGURIDAD: Tu número oficial
+const NUMERO_CREADOR = "5218716926709@s.whatsapp.net";
+
 let db = { comandos: {}, pausado: false };
 if (fs.existsSync(DB_PATH)) db = JSON.parse(fs.readFileSync(DB_PATH));
 
@@ -36,7 +39,7 @@ app.get("/", async (req, res) => {
 app.listen(PORT, () => console.log(`Servidor web activo en puerto ${PORT}`));
 
 // ==========================================
-// 2. UTILIDADES Y DISEÑO VISUAL (CLEAN UI)
+// 2. UTILIDADES Y DISEÑO VISUAL
 // ==========================================
 function obtenerTextoMensaje(m) {
     if (!m || !m.message) return "";
@@ -91,14 +94,17 @@ async function iniciarBot() {
             const esGrupo = chat.endsWith("@g.us");
 
             const responder = async (texto) => await sock.sendMessage(chat, { text: texto }, { quoted: m });
+            
+            // Verificación de Remitente y Permisos
+            const senderId = m.key.participant || chat;
+            const isCreator = senderId === NUMERO_CREADOR;
 
             let esAdmin = false;
             let groupMetadata = null;
             if (esGrupo) {
                 groupMetadata = await sock.groupMetadata(chat);
-                const senderId = m.key.participant;
                 const senderObj = groupMetadata.participants.find(p => p.id === senderId);
-                esAdmin = senderObj?.admin === 'admin' || senderObj?.admin === 'superadmin';
+                esAdmin = senderObj?.admin === 'admin' || senderObj?.admin === 'superadmin' || isCreator;
             }
 
             if (comando === "start" && esAdmin) { db.pausado = false; guardarDB(); return responder(`${pre} 🟢 *ESTADO:* ONLINE${pie}`); }
@@ -106,7 +112,7 @@ async function iniciarBot() {
             if (db.pausado) return;
 
             // ==========================================
-            // MÓDULO 1: MENÚS Y SUBMENÚS
+            // MÓDULO 1: MENÚS REESTRUCTURADOS
             // ==========================================
             if (comando === "menu" || comando === "help") {
                 const menuTxt = `╭─── 👑 *MASTER SYSTEM* ───╮\n` +
@@ -116,9 +122,11 @@ async function iniciarBot() {
                                 `│\n` +
                                 `├────── 🗂️ DIRECTORIO ──────\n` +
                                 `│\n` +
-                                `│ 🛒 *.ventas*  › Cuentas y códigos\n` +
-                                `│ ⚙️ *.admin*   › Gestión de Grupo\n` +
+                                `│ 🛒 *.ventas*  › Cuentas disponibles\n` +
+                                `│ 🔐 *.codigos* › Extracción OTP y Pines\n` +
+                                `│ ⚙️️ *.admin*   › Gestión de Grupo\n` +
                                 `│ 🎮 *.juegos*  › Entretenimiento\n` +
+                                `│ 💼 *.renta*   › Sistema de Clientes\n` +
                                 `│\n` +
                                 `╰────────────────────────╯\n` +
                                 `_Escribe un comando para abrir._`;
@@ -136,15 +144,23 @@ async function iniciarBot() {
             }
 
             if (comando === "ventas") {
-                return responder(`${pre} 🛒 *MENÚ DE VENTAS*${sep} • *.codigo [correo] [perfil]*\n│ Ficha de cuenta del cliente.\n│\n│ • *.pin [plat] [correo]*\n│ Extrae el código OTP en vivo.\n│\n│ • *.pedircodigo*\n│ Plantilla manual de solicitud.${pie}`);
+                return responder(`${pre} 🛒 *MENÚ DE VENTAS*${sep} _Consulta nuestra disponibilidad escribiendo el comando de lo que buscas:_\n│\n│ • *.stock*\n│ • *.netflix*\n│ • *.combos*\n│ • *.peliculas*\n│ • *.canvas*\n│ • *.promo*\n│\n│ _(Los administradores pueden crear o editar estos menús desde el apartado .renta)_${pie}`);
+            }
+
+            if (comando === "codigos") {
+                return responder(`${pre} 🔐 *SISTEMA DE CÓDIGOS*${sep} • *.codigo [correo] [perfil]*\n│ Revisa la ficha de la cuenta.\n│\n│ • *.pin [plat] [correo]*\n│ Extrae el código OTP en vivo.\n│\n│ • *.pedircodigo*\n│ Formato para solicitar código.${pie}`);
             }
 
             if (comando === "admin") {
-                return responder(`${pre} ⚙️ *MODERACIÓN VIP*${sep} • *.n [texto]* › Anuncio (Sin arrobas)\n│ • *.ntodos [texto]* › Anuncio a TODOS\n│ • *.kick [@user]* › Expulsar\n│ • *.promover / .degradar*\n│ • *.cerrar / .abrir* › Chat\n│ • *.link* › Enlace del grupo\n│ • *.tagall* › Mención visible\n│\n│ *Personalización (Renta):*\n│ • *.activar* › Iniciar base de datos\n│ • *.set / .del* › Autorespuestas${pie}`);
+                return responder(`${pre} ⚙️ *MODERACIÓN VIP*${sep} • *.n [texto]* › Anuncio a TODOS (Invisible)\n│ • *.kick [@user]* › Expulsar\n│ • *.promover / .degradar*\n│ • *.cerrar / .abrir* › Chat\n│ • *.link* › Enlace del grupo\n│ • *.tagall* › Mención visible${pie}`);
+            }
+            
+            if (comando === "renta") {
+                return responder(`${pre} 💼 *PERSONALIZACIÓN Y RENTA*${sep} • *.activar* › Iniciar DB privada del grupo\n│ • *.set [comando] [texto]* › Crear respuesta\n│ • *.del [comando]* › Borrar respuesta\n│\n│ _Ejemplo: .set netflix Tenemos cuentas disponibles por $50_${pie}`);
             }
 
             if (comando === "juegos") {
-                return responder(`${pre} 🎮 *ENTRETENIMIENTO*${sep} • *.casino* › Tragamonedas 🎰\n│ • *.dado* › Lanza los dados 🎲\n│ • *.suerte* › Medidor de suerte 🍀\n│ • *.ruleta* › Ruleta Rusa 🔫\n│ • *.doxeo [@user]* › Hackeo Falso 💻\n│ • *.calentura / .pajero* › Test 🌡️\n│ • *.ship / .parejas* › Cupido 💘\n│ • *.piropo* › Frases de amor 😘${pie}`);
+                return responder(`${pre} 🎮 *ENTRETENIMIENTO*${sep} • *.casino* › Tragamonedas 🎰\n│ • *.dado* › Lanza los dados 🎲\n│ • *.suerte* › Medidor de suerte 🍀\n│ • *.ruleta* › Ruleta Rusa 🔫\n│ • *.doxeo [@user]* › Hackeo Falso 💻\n│ • *.calentura / .pajero* › Test 🌡️️\n│ • *.ship / .parejas* › Cupido 💘\n│ • *.piropo* › Frases de amor 😘${pie}`);
             }
 
             // ==========================================
@@ -209,7 +225,7 @@ async function iniciarBot() {
                 const nivel = Math.floor(Math.random() * 101);
                 let titulo = comando.toUpperCase();
                 let diag = nivel > 80 ? "🔥 ¡Báñate con agua fría, enfermo!" : nivel > 40 ? "😏 Andas en el punto exacto." : "🧊 Eres un tempano de hielo.";
-                return await sock.sendMessage(chat, { text: `${pre} 🌡️ *TEST DE ${titulo}* 🌡️${sep} Analizando a ${tag}...\n\n📊 *Nivel detectado:* ${nivel}%\n🩺 *Diagnóstico:* ${diag}${pie}`, mentions: target ? [target] : [] });
+                return await sock.sendMessage(chat, { text: `${pre} 🌡️ *TEST DE ${titulo}* 🌡️️${sep} Analizando a ${tag}...\n\n📊 *Nivel detectado:* ${nivel}%\n🩺 *Diagnóstico:* ${diag}${pie}`, mentions: target ? [target] : [] });
             }
 
             if (comando === "ship" || comando === "parejas") {
@@ -235,39 +251,37 @@ async function iniciarBot() {
             }
 
             // ==========================================
-            // MÓDULO 3: SEGURIDAD Y ANUNCIOS (N Y NTODOS)
+            // MÓDULO 3: SEGURIDAD Y ANUNCIOS (.N y KICK)
             // ==========================================
             if (comando === "cerrar" || comando === "abrir") {
                 if (!esGrupo || !esAdmin) return;
                 const esCerrar = comando === "cerrar";
                 try {
                     await sock.groupSettingUpdate(chat, esCerrar ? "announcement" : "not_announcement");
-                    const msg = `╭─── 🛡️ *SISTEMA DE SEGURIDAD* ───╮\n│\n│ 🔐 *ESTADO:* ${esCerrar ? "RESTRINGIDO" : "PÚBLICO"}\n│ 💬 *CHAT:* ${esCerrar ? "CERRADO 🔴" : "ABIERTO 🟢"}\n│\n╰─────────────────────────╯\n_${esCerrar ? "Solo el personal autorizado puede interactuar." : "Operaciones normales restauradas."}_`;
+                    const msg = `╭─── 🛡 *SISTEMA DE SEGURIDAD* ───╮\n│\n│ 🔐 *ESTADO:* ${esCerrar ? "RESTRINGIDO" : "PÚBLICO"}\n│ 💬 *CHAT:* ${esCerrar ? "CERRADO 🔴" : "ABIERTO 🟢"}\n│\n╰─────────────────────────╯\n_${esCerrar ? "Solo el personal autorizado puede interactuar." : "Operaciones normales restauradas."}_`;
                     await sock.sendMessage(chat, { text: msg });
                 } catch (error) { return responder(`${pre} ❌ *ERROR*${sep} Necesitas hacerme Administrador primero.${pie}`); }
                 return;
             }
 
-            if (comando === "n" || comando === "ntodos") {
+            if (comando === "n" || comando === "anuncio") {
                 if (!esGrupo || !esAdmin) return responder(`${pre} ⛔ *ACCESO DENEGADO*${sep} Solo administradores.${pie}`);
                 
                 let txtMsg = args.join(" ");
                 let isQuoted = m.message.extendedTextMessage?.contextInfo?.quotedMessage;
                 
-                // Si no hay texto, lo busca en el mensaje respondido o en el pie de foto
                 if (!txtMsg && isQuoted) txtMsg = isQuoted.conversation || isQuoted.extendedTextMessage?.text || isQuoted.imageMessage?.caption || isQuoted.videoMessage?.caption || "";
                 if (!txtMsg && !isQuoted && !m.message.imageMessage && !m.message.videoMessage) return responder(`${pre} ⚠️ *ERROR*${sep} Escribe un mensaje o responde a una imagen.${pie}`);
                 
                 const fch = new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'long' });
-                const finalTxt = `*${txtMsg}*\n\n| 🛡 *${groupMetadata.subject}* • ${fch}`;
+                const finalTxt = `${txtMsg}\n\n| 🛡 *${groupMetadata.subject}* • ${fch}`;
                 
-                // Si es .ntodos, hace la lista de menciones; si es .n, la deja vacía (no suena el celular de los demás)
-                const menciones = comando === "ntodos" ? groupMetadata.participants.map(p => p.id) : [];
+                // SIEMPRE hace mención invisible a todos los participantes
+                const menciones = groupMetadata.participants.map(p => p.id);
 
                 try {
                     let buffer = null;
                     let msgType = null;
-                    // Detecta si enviaste una imagen directa o respondiste a una
                     if (m.message.imageMessage || m.message.videoMessage) {
                         msgType = m.message.imageMessage ? 'image' : 'video';
                         const stream = await downloadContentFromMessage(m.message[msgType + 'Message'], msgType);
@@ -280,7 +294,6 @@ async function iniciarBot() {
                         for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
                     }
 
-                    // Envía la imagen con el texto integrado, o solo texto si no hubo imagen
                     if (buffer) {
                         if (msgType === 'image') await sock.sendMessage(chat, { image: buffer, caption: finalTxt, mentions: menciones });
                         else await sock.sendMessage(chat, { video: buffer, caption: finalTxt, mentions: menciones });
@@ -297,9 +310,13 @@ async function iniciarBot() {
             if (comando === "kick" || comando === "sacar") {
                 if (!esGrupo || !esAdmin) return responder(`${pre} ⛔ Solo administradores.${pie}`);
                 let target = m.message.extendedTextMessage?.contextInfo?.participant || (m.message.extendedTextMessage?.contextInfo?.mentionedJid ? m.message.extendedTextMessage.contextInfo.mentionedJid[0] : null);
-                if (!target) return responder(`${pre} ⚠️ Menciona o responde al usuario.${pie}`);
+                if (!target) return responder(`${pre} ⚠️️ Menciona o responde al usuario.${pie}`);
+                
+                if (target === NUMERO_CREADOR) return responder(`${pre} ⚠️ *ALERTA DE SEGURIDAD*${sep} El protocolo maestro me prohíbe expulsar a mi Creador.${pie}`);
+                
                 const targetObj = groupMetadata.participants.find(p => p.id === target);
-                if (targetObj?.admin) return responder(`${pre} 🛡️ *BLINDAJE*${sep} Imposible expulsar Administración.${pie}`);
+                if (targetObj?.admin) return responder(`${pre} 🛡️ *BLINDAJE*${sep} Imposible expulsar a otro Administrador.${pie}`);
+                
                 try {
                     await sock.groupParticipantsUpdate(chat, [target], "remove");
                     return responder(`${pre} 👢 *ACCIÓN COMPLETADA*${sep} Usuario eliminado.${pie}`);
@@ -310,8 +327,11 @@ async function iniciarBot() {
                 if (!esGrupo || !esAdmin) return;
                 let target = m.message.extendedTextMessage?.contextInfo?.participant || (m.message.extendedTextMessage?.contextInfo?.mentionedJid ? m.message.extendedTextMessage.contextInfo.mentionedJid[0] : null);
                 if (!target) return;
+                
+                if (target === NUMERO_CREADOR && comando === "degradar") return responder(`${pre} ⚠️ *ALERTA DE SEGURIDAD*${sep} El Creador del Bot no puede ser degradado.${pie}`);
+                
                 if (comando === "degradar" && groupMetadata.participants.find(p => p.id === target)?.admin === 'superadmin') {
-                    return responder(`${pre} 🛡️ *BLINDAJE*${sep} No se puede degradar al Creador.${pie}`);
+                    return responder(`${pre} 🛡 *BLINDAJE*${sep} No se puede degradar al dueño del grupo.${pie}`);
                 }
                 try {
                     await sock.groupParticipantsUpdate(chat, [target], comando === "promover" ? "promote" : "demote");
@@ -337,7 +357,7 @@ async function iniciarBot() {
             }
 
             // ==========================================
-            // MÓDULO 4: INTEGRACIÓN MASTER STREAMING
+            // MÓDULO 4: CÓDIGOS E INTEGRACIÓN GOOGLE
             // ==========================================
             if (comando === "codigo") {
                 const correo = args[0] ? args[0].trim().toLowerCase() : "";
