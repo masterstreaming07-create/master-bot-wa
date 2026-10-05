@@ -2,6 +2,7 @@ const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, jidNorma
 const pino = require("pino");
 const express = require("express");
 const QRCode = require("qrcode");
+const https = require("https");
 
 // ==========================================
 // 1. CONFIGURACIÓN Y SERVIDOR WEB
@@ -9,31 +10,51 @@ const QRCode = require("qrcode");
 const app = express();
 const PORT = process.env.PORT || 3000;
 const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwsfiLlP7ot1DSHiyLfBdXEMI_6sbt9fD0MXxynwGqPG-HDZPpTLiWffxzrFFLP5Nrl/exec";
+
+// ☁️ CAJA FUERTE EN LA NUBE
 const FIREBASE_URL = "https://masterbot-cd954-default-rtdb.firebaseio.com/database.json";
 
-// 🛡️ BLINDAJE DE SEGURIDAD (TUS 10 DÍGITOS REALES)
-// Confirma que sean 10 dígitos. Si es 7772404601, déjalo así.
-const NUMERO_CREADOR = "7772404601";
+let db = { comandos: {}, gruposOTP: {}, mapaGrupos: {}, licencias: {}, creador: "", pausado: false };
 
-let db = { comandos: {}, gruposOTP: {}, mapaGrupos: {}, licencias: {}, pausado: false };
-
+// CONEXIÓN A FIREBASE BLINDADA (No pierde datos al reiniciar)
 async function cargarDB() {
-    try {
-        const res = await fetch(FIREBASE_URL);
-        const data = await res.json();
-        if (data) {
-            db.comandos = data.comandos || {};
-            db.gruposOTP = data.gruposOTP || {};
-            db.mapaGrupos = data.mapaGrupos || {};
-            db.licencias = data.licencias || {};
-            for (let key in data) if (!['comandos', 'gruposOTP', 'mapaGrupos', 'licencias', 'pausado'].includes(key)) db[key] = data[key];
-        }
-        console.log("✅ Base de datos sincronizada.");
-    } catch (e) { console.log("⚠️ Error en DB."); }
+    return new Promise((resolve) => {
+        https.get(FIREBASE_URL, (res) => {
+            let body = '';
+            res.on('data', chunk => body += chunk);
+            res.on('end', () => {
+                try {
+                    const data = JSON.parse(body);
+                    if (data && typeof data === 'object') {
+                        db.comandos = data.comandos || {};
+                        db.gruposOTP = data.gruposOTP || {};
+                        db.mapaGrupos = data.mapaGrupos || {};
+                        db.licencias = data.licencias || {};
+                        db.creador = data.creador || ""; // Guarda tu número exacto
+                        for (let key in data) if (!['comandos', 'gruposOTP', 'mapaGrupos', 'licencias', 'creador', 'pausado'].includes(key)) db[key] = data[key];
+                    }
+                    console.log("✅ Base de datos cargada desde la nube.");
+                    resolve();
+                } catch (e) { resolve(); }
+            });
+        }).on('error', () => resolve());
+    });
 }
 
-async function guardarDB() {
-    try { await fetch(FIREBASE_URL, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(db) }); } catch (e) {}
+function guardarDB() {
+    try {
+        const dataStr = JSON.stringify(db);
+        const options = {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(dataStr) }
+        };
+        const req = https.request(FIREBASE_URL, options, (res) => {
+            res.on('data', () => {}); 
+        });
+        req.on('error', (e) => console.log("⚠️ Error de Firebase:", e.message));
+        req.write(dataStr);
+        req.end();
+    } catch (e) {}
 }
 
 let qrActual = null;
@@ -47,7 +68,7 @@ app.get("/", async (req, res) => {
             return res.send(`<div style="text-align: center; margin-top: 30px;"><h2>⚡ ESCANEAR ACCESO ⚡</h2><img src="${qrImage}" style="width: 280px; border: 2px solid #333;" /><script>setTimeout(() => location.reload(), 15000);</script></div>`);
         } catch (e) { return res.send("Generando nodo..."); }
     }
-    res.send("Iniciando módulos del sistema...");
+    res.send("Iniciando módulos...");
 });
 app.listen(PORT, () => console.log(`Servidor en puerto ${PORT}`));
 
@@ -100,10 +121,21 @@ async function iniciarBot() {
 
             const responder = async (texto) => await sock.sendMessage(chat, { text: texto }, { quoted: m });
             
-            // DETECTOR UNIVERSAL INFALIBLE
             const senderId = m.key.participant || chat;
-            const numPuro = senderId.replace(/[^0-9]/g, ""); 
-            const isCreator = numPuro.endsWith(NUMERO_CREADOR);
+
+            // ==========================================
+            // AUTO-REGISTRO DEL CREADOR (TU GRAN IDEA)
+            // ==========================================
+            if (comando === "soycreador") {
+                if (db.creador !== "" && db.creador !== senderId) {
+                    return responder(`${pre}\n║ ⚠️ El bot ya tiene un dueño registrado.\n${pie}`);
+                }
+                db.creador = senderId;
+                guardarDB();
+                return responder(`╔══════════════════════════╗\n║ 👑 *NUEVO CREADOR RECONOCIDO*\n╠══════════════════════════╣\n║ Se ha vinculado tu número:\n║ ${senderId.split("@")[0]}\n║\n║ Tienes control absoluto.\n╚══════════════════════════╝`);
+            }
+
+            const isCreator = (db.creador === senderId);
 
             let esAdmin = false;
             let groupMetadata = null;
@@ -113,7 +145,7 @@ async function iniciarBot() {
                 esAdmin = senderObj?.admin === 'admin' || senderObj?.admin === 'superadmin' || isCreator;
             }
 
-            // SISTEMA DE LICENCIAS (BLOQUEADOR POR FALTA DE PAGO)
+            // SISTEMA DE LICENCIAS (BLOQUEADOR)
             if (esGrupo && !isCreator && comando !== "menu") {
                 const vencimiento = db.licencias?.[chat];
                 if (vencimiento && Date.now() > vencimiento) {
@@ -219,7 +251,7 @@ async function iniciarBot() {
                 return;
             }
 
-            // COMANDO .N (ANUNCIO 100% INVISIBLE)
+            // COMANDO .N (ANUNCIO 100% INVISIBLE COMO PEDISTE)
             if (comando === "n") {
                 if (!esGrupo || !esAdmin) return;
                 
@@ -231,14 +263,14 @@ async function iniciarBot() {
                 }
                 
                 if (!txtMsg && !isQuoted && !m.message.imageMessage && !m.message.videoMessage) {
-                    return responder(`${pre}\n║ ⚠️️ Escribe un mensaje o responde a una imagen.\n${pie}`);
+                    return responder(`${pre}\n║ ⚠ Escribe un mensaje o responde a una imagen.\n${pie}`);
                 }
                 
                 const fch = new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'long' });
-                // Aquí armamos el texto LIMPIO, sin arrobas visibles
+                // TEXTO LIMPIO SIN ARROBAS
                 const finalTxt = `${txtMsg}\n\n| 🛡 *${groupMetadata.subject}* • ${fch}`;
                 
-                // Obtenemos los participantes reales para inyectarlos en "mentions" (esto hace que suene la notificación)
+                // MENCIONES INVISIBLES (Hace que suene el teléfono a todos pero no salen en el chat)
                 const menciones = groupMetadata.participants.map(p => p.id);
 
                 try {
@@ -268,7 +300,7 @@ async function iniciarBot() {
                 let target = m.message.extendedTextMessage?.contextInfo?.participant || (m.message.extendedTextMessage?.contextInfo?.mentionedJid ? m.message.extendedTextMessage.contextInfo.mentionedJid[0] : null);
                 if (!target) return;
                 
-                if (target.replace(/[^0-9]/g, "").endsWith(NUMERO_CREADOR)) {
+                if (target === db.creador) {
                     return responder(`${pre}\n║ ⚠️ *BLINDAJE MAESTRO*\n║ Prohibido expulsar al Creador.\n${pie}`);
                 }
                 try {
