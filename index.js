@@ -16,7 +16,7 @@ const FIREBASE_URL = "https://masterbot-cd954-default-rtdb.firebaseio.com/databa
 
 let db = { comandos: {}, gruposOTP: {}, mapaGrupos: {}, licencias: {}, pinUsers: {}, creador: "", bienvenida: {}, despedida: {}, pausado: false };
 
-// ✅ FILTRO DE SEGURIDAD PARA FIREBASE (ELIMINA LOS PUNTOS)
+// ✅ FILTRO DE SEGURIDAD PARA FIREBASE (ELIMINA PUNTOS)
 const fbKey = (id) => {
     if (!id) return "default";
     return id.replace(/[\.\$#\[\]\/]/g, '_');
@@ -113,9 +113,7 @@ async function iniciarBot() {
         else if (connection === "open") { botConectado = true; qrActual = null; }
     });
 
-    // ==========================================
     // SISTEMA DE BIENVENIDA Y DESPEDIDA
-    // ==========================================
     sock.ev.on("group-participants.update", async (anu) => {
         try {
             const jid = anu.id;
@@ -160,7 +158,7 @@ async function iniciarBot() {
 
             const texto = obtenerTextoMensaje(m);
             const chat = m.key.remoteJid;
-            const chatId = fbKey(chat); // Identificador seguro para Firebase
+            const chatId = fbKey(chat);
             
             if (!texto || !texto.startsWith(".")) return;
 
@@ -171,9 +169,7 @@ async function iniciarBot() {
             const responder = async (texto) => await sock.sendMessage(chat, { text: texto }, { quoted: m });
             const senderId = m.key.participant || chat;
 
-            // ==========================================
             // AUTO-REGISTRO DEL CREADOR
-            // ==========================================
             if (comando === "soycreador") {
                 if (db.creador !== "" && db.creador !== senderId) return responder(`${pre}\n║ ⚠️ El bot ya tiene un dueño.\n${pie}`);
                 db.creador = senderId;
@@ -191,7 +187,7 @@ async function iniciarBot() {
                 esAdmin = senderObj?.admin === 'admin' || senderObj?.admin === 'superadmin' || isCreator;
             }
 
-            // SISTEMA DE LICENCIAS (BLOQUEADOR)
+            // SISTEMA DE LICENCIAS (EXCEPTO SI ERES TÚ)
             if (esGrupo && !isCreator && comando !== "menu" && comando !== "nube") {
                 const vencimiento = db.licencias?.[chatId];
                 if (!vencimiento) {
@@ -221,7 +217,7 @@ async function iniciarBot() {
                     let vencimiento = "Sin licencia";
                     if (db.licencias[jidId]) {
                         const date = new Date(db.licencias[jidId]);
-                        vencimiento = Date.now() > db.licencias[jidId] ? "⚠ VENCIDA" : date.toLocaleDateString('es-MX');
+                        vencimiento = Date.now() > db.licencias[jidId] ? "⚠️ VENCIDA" : date.toLocaleDateString('es-MX');
                     }
                     txt += `║ *${i}.* ${grupos[jid].subject}\n║  ├ 🔑 PIN: ${pinActivo}\n║  └ 📅 Vence: ${vencimiento}\n║\n`;
                     db.mapaGrupos[i] = jid; i++;
@@ -231,7 +227,6 @@ async function iniciarBot() {
                 return responder(txt);
             }
 
-            // ACTIVACIÓN REMOTA
             if (comando === "licencia" && isCreator) {
                 const dias = parseInt(args[0]); const num = args[1];
                 if (!dias || !num) return responder(`${pre}\n║ ⚠️ Uso: .licencia [días] [num]\n${pie}`);
@@ -254,7 +249,6 @@ async function iniciarBot() {
                 return responder(`${pre}\n║ ⛔ Grupo ${num} suspendido.\n${pie}`);
             }
 
-            // GESTIÓN DE PERMISOS PIN GENERALES
             if (comando === "activarpin" && isCreator) {
                 const num = args[0]; const jid = db.mapaGrupos?.[num]; if (!jid) return;
                 db.gruposOTP[fbKey(jid)] = true; await guardarDB();
@@ -267,7 +261,6 @@ async function iniciarBot() {
                 return responder(`${pre}\n║ ⛔ *OTP BLOQUEADO*\n║ Permiso revocado al grupo ${num}.\n${pie}`);
             }
 
-            // GESTIÓN DE OPERADORES PIN
             if (comando === "addpin" && isCreator) {
                 if (!esGrupo) return responder(`${pre}\n║ ⚠️ Usa esto dentro del grupo.\n${pie}`);
                 let target = m.message.extendedTextMessage?.contextInfo?.participant || (m.message.extendedTextMessage?.contextInfo?.mentionedJid ? m.message.extendedTextMessage.contextInfo.mentionedJid[0] : null);
@@ -289,9 +282,7 @@ async function iniciarBot() {
                 return responder(`╔══════════════════════════╗\n║ 🗑️ *LICENCIA REVOCADA*\n╠══════════════════════════╣\n║ @${target.split("@")[0]} ya no puede\n║ extraer códigos.\n╚══════════════════════════╝`, { mentions: [target] });
             }
 
-            // ==========================================
-            // EXTRACCIÓN OTP 
-            // ==========================================
+            // EXTRACCIÓN OTP
             if (comando === "pin" || comando === "extraer") {
                 if (!esGrupo) return responder(`${pre}\n║ ⛔ Solo funciona en grupos.\n${pie}`);
                 const autorizado = isCreator || (db.pinUsers && db.pinUsers[chatId] && db.pinUsers[chatId].includes(senderId));
@@ -317,9 +308,7 @@ async function iniciarBot() {
                 return;
             }
 
-            // ==========================================
-            // ACTIVAR FUNCIONES Y BASE DE DATOS
-            // ==========================================
+            // ACTIVACIONES
             if (comando === "activar") {
                 if (!esGrupo || !esAdmin) return;
                 if (args[0] === "bienvenida") {
@@ -347,10 +336,8 @@ async function iniciarBot() {
                 }
             }
 
-            // ==========================================
-            // COMANDOS LOCALES (.SET) AISLADOS Y BLINDADOS
-            // ==========================================
-            if (comando === "set" && esAdmin) {
+            // COMANDOS LOCALES (.SET)
+            if (comando === "set" && (esAdmin || isCreator)) {
                 const nCmd = args.shift()?.toLowerCase();
                 if (!nCmd || !args.length) return responder(`${pre}\n║ ⚠ Uso: .set [nombre] [texto]\n${pie}`);
                 if (esGrupo && !db[chatId]) return responder(`${pre}\n║ ⛔ El grupo no tiene DB.\n${pie}`);
@@ -364,7 +351,7 @@ async function iniciarBot() {
                 return responder(`${pre}\n║ ✅ Comando .${nCmd} guardado.\n${pie}`);
             }
 
-            if (comando === "del" && esAdmin) {
+            if (comando === "del" && (esAdmin || isCreator)) {
                 const nCmd = args[0]?.toLowerCase();
                 if (esGrupo && db[chatId]?.comandos && db[chatId].comandos[nCmd]) delete db[chatId].comandos[nCmd];
                 else if (!esGrupo && db.comandos[nCmd]) delete db.comandos[nCmd];
@@ -372,7 +359,7 @@ async function iniciarBot() {
                 return responder(`${pre}\n║ 🗑️ Comando eliminado.\n${pie}`);
             }
 
-            // 📂 NUEVO: COMANDO CATÁLOGO
+            // CATÁLOGO
             if (comando === "catalogo" || comando === "miscomandos") {
                 let lista = [];
                 if (esGrupo && db[chatId]?.comandos) Object.keys(db[chatId].comandos).forEach(k => lista.push(k));
@@ -386,21 +373,18 @@ async function iniciarBot() {
                 return responder(txt);
             }
 
-            // LECTOR INTELIGENTE
             let respCmd = null;
-            if (esGrupo && db[chatId]?.comandos && db[chatId].comandos[comando]) respCmd = db[chatId].comandos[comando];
-            else if (db.comandos[comando]) respCmd = db.comandos[comando]; 
+            if (esGrupo && db[chatId]?.comandos && db[chatId]?.comandos[comando]) respCmd = db[chatId].comandos[comando];
+            else if (db.comandos && db.comandos[comando]) respCmd = db.comandos[comando]; 
             
             if (respCmd) {
                 if (respCmd.includes("╔═════")) return responder(respCmd);
                 return responder(`╔══════════════════════════╗\n║ 💡 *INFORMACIÓN*\n╠══════════════════════════╣\n║ ${respCmd}\n╚══════════════════════════╝`);
             }
 
-            // ==========================================
-            // MODERACIÓN INTELIGENTE Y ANUNCIOS
-            // ==========================================
+            // MODERACIÓN Y ANUNCIOS
             if (comando === "cerrar" || comando === "abrir") {
-                if (!esGrupo || !esAdmin) return;
+                if (!esGrupo || (!esAdmin && !isCreator)) return;
                 const esCerrar = comando === "cerrar";
                 const accionConfig = esCerrar ? "announcement" : "not_announcement";
                 const timeArg = args[0]; let delayMs = 0; let timeStr = "";
@@ -437,7 +421,7 @@ async function iniciarBot() {
             }
 
             if (comando === "n") {
-                if (!esGrupo || !esAdmin) return;
+                if (!esGrupo || (!esAdmin && !isCreator)) return;
                 let txtMsg = args.join(" ");
                 let isQuoted = m.message.extendedTextMessage?.contextInfo?.quotedMessage;
                 if (!txtMsg && isQuoted) { txtMsg = isQuoted.conversation || isQuoted.extendedTextMessage?.text || isQuoted.imageMessage?.caption || isQuoted.videoMessage?.caption || ""; }
@@ -468,7 +452,7 @@ async function iniciarBot() {
             }
 
             if (comando === "kick" || comando === "sacar") {
-                if (!esGrupo || !esAdmin) return;
+                if (!esGrupo || (!esAdmin && !isCreator)) return;
                 let target = m.message.extendedTextMessage?.contextInfo?.participant || (m.message.extendedTextMessage?.contextInfo?.mentionedJid ? m.message.extendedTextMessage.contextInfo.mentionedJid[0] : null);
                 if (!target) return;
                 if (target === db.creador) return responder(`${pre}\n║ ⚠️ *BLINDAJE MAESTRO*\n║ Prohibido expulsar al Creador.\n${pie}`);
@@ -479,7 +463,7 @@ async function iniciarBot() {
             }
 
             if (comando === "promover" || comando === "degradar") {
-                if (!esGrupo || !esAdmin) return;
+                if (!esGrupo || (!esAdmin && !isCreator)) return;
                 let target = m.message.extendedTextMessage?.contextInfo?.participant || (m.message.extendedTextMessage?.contextInfo?.mentionedJid ? m.message.extendedTextMessage.contextInfo.mentionedJid[0] : null);
                 if (!target) return responder(`${pre}\n║ ⚠ Menciona a alguien.\n${pie}`);
                 
@@ -493,14 +477,14 @@ async function iniciarBot() {
 
                 try {
                     await sock.groupParticipantsUpdate(chat, [target], comando === "promover" ? "promote" : "demote");
-                    return responder(`${pre}\n║ ⚙️ *RANGO ACTUALIZADO*\n║ Usuario ${comando === "promover" ? "Promovido 👑" : "Degradado ⬇️️"}.\n${pie}`);
+                    return responder(`${pre}\n║ ⚙️ *RANGO ACTUALIZADO*\n║ Usuario ${comando === "promover" ? "Promovido 👑" : "Degradado ⬇"}.\n${pie}`);
                 } catch (error) { 
                     return responder(`${pre}\n║ ❌ *ERROR*\n║ Hazme administrador primero.\n${pie}`); 
                 }
             }
 
             if (comando === "link") {
-                if (!esGrupo || !esAdmin) return;
+                if (!esGrupo || (!esAdmin && !isCreator)) return;
                 try {
                     const code = await sock.groupInviteCode(chat);
                     return responder(`${pre}\n║ 🔗 *ENLACE DEL GRUPO*\n║ https://chat.whatsapp.com/${code}\n${pie}`);
@@ -508,7 +492,7 @@ async function iniciarBot() {
             }
 
             if (comando === "tagall") {
-                if (!esGrupo || !esAdmin) return;
+                if (!esGrupo || (!esAdmin && !isCreator)) return;
                 let msgTag = `╔══════════════════════════╗\n║ 📢 *LLAMADO GENERAL*\n╠══════════════════════════╣\n`;
                 const menciones = groupMetadata.participants.map(p => { msgTag += `║ • @${p.id.split("@")[0]}\n`; return p.id; });
                 msgTag += `╚══════════════════════════╝`;
