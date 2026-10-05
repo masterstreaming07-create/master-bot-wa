@@ -198,7 +198,7 @@ async function iniciarBot() {
             // CAPA 1: COMANDOS FUNCIONALES Y SEGURIDAD
             // ==========================================
             if (comando === "admin") {
-                return responder(`${pre} ⚙️ *MODERACIÓN VIP*${sep} • *.n [texto]* › Anuncio Invisible a Todos\n│ • *.kick [@user]* › Expulsar\n│ • *.promover / .degradar*\n│ • *.cerrar / .abrir* › Chat\n│ • *.link* › Enlace del grupo\n│ • *.tagall* › Mención visible${pie}`);
+                return responder(`${pre} ⚙️ *MODERACIÓN VIP*${sep} • *.n [texto]* › Anuncio Masivo\n│ • *.kick [@user]* › Expulsar\n│ • *.promover / .degradar*\n│ • *.cerrar / .abrir* › Chat\n│ • *.link* › Enlace del grupo\n│ • *.tagall* › Mención visible${pie}`);
             }
             
             if (comando === "renta") {
@@ -286,8 +286,13 @@ async function iniciarBot() {
                 if (!txtMsg && !isQuoted && !m.message.imageMessage && !m.message.videoMessage) return responder(`${pre} ⚠️ *ERROR*${sep} Escribe un mensaje o responde a una imagen.${pie}`);
                 
                 const fch = new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'long' });
-                const finalTxt = `${txtMsg}\n\n| 🛡 *${groupMetadata.subject}* • ${fch}`;
+                
+                // Menciones y Truco de "Leer más..." para ocultar los @
                 const menciones = groupMetadata.participants.map(p => p.id);
+                const etiquetasVisibles = menciones.map(m => `@${m.split("@")[0]}`).join(" ");
+                const leerMas = String.fromCharCode(8206).repeat(4000); 
+                
+                const finalTxt = `${txtMsg}\n\n| 🛡 *${groupMetadata.subject}* • ${fch}${leerMas}\n${etiquetasVisibles}`;
 
                 try {
                     let buffer = null;
