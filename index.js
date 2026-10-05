@@ -16,7 +16,12 @@ const FIREBASE_URL = "https://masterbot-cd954-default-rtdb.firebaseio.com/databa
 
 let db = { comandos: {}, gruposOTP: {}, mapaGrupos: {}, licencias: {}, pinUsers: {}, creador: "", bienvenida: {}, despedida: {}, pausado: false };
 
-// CONEXIÓN A FIREBASE BLINDADA
+// ✅ FILTRO DE SEGURIDAD PARA FIREBASE (ELIMINA LOS PUNTOS)
+const fbKey = (id) => {
+    if (!id) return "default";
+    return id.replace(/[\.\$#\[\]\/]/g, '_');
+};
+
 async function cargarDB() {
     return new Promise((resolve) => {
         https.get(FIREBASE_URL, (res) => {
@@ -36,7 +41,7 @@ async function cargarDB() {
                         db.despedida = data.despedida || {};
                         for (let key in data) if (!['comandos', 'gruposOTP', 'mapaGrupos', 'licencias', 'pinUsers', 'creador', 'bienvenida', 'despedida', 'pausado'].includes(key)) db[key] = data[key];
                     }
-                    console.log("✅ Base de datos cargada desde la nube.");
+                    console.log("✅ Base de datos cargada.");
                     resolve();
                 } catch (e) { resolve(); }
             });
@@ -48,12 +53,12 @@ function guardarDB() {
     return new Promise((resolve) => {
         try {
             const dataStr = JSON.stringify(db);
-            const options = { method: 'PUT', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(dataStr) } };
+            const options = { method: 'PUT', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(dataStr, 'utf8') } };
             const req = https.request(FIREBASE_URL, options, (res) => {
                 res.on('data', () => {}); 
                 res.on('end', () => resolve(true));
             });
-            req.on('error', (e) => { console.log("⚠️ Error FB:", e.message); resolve(false); });
+            req.on('error', (e) => resolve(false));
             req.write(dataStr);
             req.end();
         } catch (e) { resolve(false); }
@@ -114,6 +119,7 @@ async function iniciarBot() {
     sock.ev.on("group-participants.update", async (anu) => {
         try {
             const jid = anu.id;
+            const jidId = fbKey(jid);
             const participants = anu.participants;
             
             for (let num of participants) {
@@ -124,12 +130,12 @@ async function iniciarBot() {
                     catch { pfp = "https://i.imgur.com/OFOwV0Y.jpeg"; }
                 }
 
-                if (anu.action === 'add' && db.bienvenida && db.bienvenida[jid]) {
+                if (anu.action === 'add' && db.bienvenida && db.bienvenida[jidId]) {
                     const groupMeta = await sock.groupMetadata(jid);
                     const text = `╔══════════════════════════╗\n║ 🎉 *¡NUEVO MIEMBRO!*\n╠══════════════════════════╣\n║ Bienvenido(a) @${num.split("@")[0]}\n║ al grupo: *${groupMeta.subject}*\n║\n║ Esperamos que disfrutes\n║ tu estancia. Escribe .menu\n╚══════════════════════════╝`;
                     await sock.sendMessage(jid, { image: { url: pfp }, caption: text, mentions: [num] });
                 } 
-                else if (anu.action === 'remove' && db.despedida && db.despedida[jid]) {
+                else if (anu.action === 'remove' && db.despedida && db.despedida[jidId]) {
                     const despedidas = [
                         "Se nos fue un soldado... 🪖",
                         "¡Hasta la vista, baby! 🕶️",
@@ -143,7 +149,7 @@ async function iniciarBot() {
                     await sock.sendMessage(jid, { image: { url: pfp }, caption: text, mentions: [num] });
                 }
             }
-        } catch (err) { console.error("Error en evento de grupo:", err); }
+        } catch (err) {}
     });
 
     sock.ev.on("messages.upsert", async (chatUpdate) => {
@@ -154,6 +160,8 @@ async function iniciarBot() {
 
             const texto = obtenerTextoMensaje(m);
             const chat = m.key.remoteJid;
+            const chatId = fbKey(chat); // Identificador seguro para Firebase
+            
             if (!texto || !texto.startsWith(".")) return;
 
             const args = texto.slice(1).trim().split(/ +/);
@@ -183,17 +191,12 @@ async function iniciarBot() {
                 esAdmin = senderObj?.admin === 'admin' || senderObj?.admin === 'superadmin' || isCreator;
             }
 
-            // ==========================================
-            // SISTEMA DE LICENCIAS (MURO DE PAGO DEFINITIVO)
-            // ==========================================
-            if (esGrupo && !isCreator && comando !== "menu") {
-                const vencimiento = db.licencias?.[chat];
-                
-                // Si NUNCA ha tenido licencia (intento de uso gratis)
+            // SISTEMA DE LICENCIAS (BLOQUEADOR)
+            if (esGrupo && !isCreator && comando !== "menu" && comando !== "nube") {
+                const vencimiento = db.licencias?.[chatId];
                 if (!vencimiento) {
                     return responder(`╔══════════════════════════╗\n║ ⛔ *ACCESO DENEGADO*\n╠══════════════════════════╣\n║ Este grupo no tiene una\n║ licencia activa.\n║ Rentar bot: Contacta al Creador\n╚══════════════════════════╝`);
                 }
-                // Si ya se le venció la licencia
                 if (Date.now() > vencimiento) {
                     return responder(`╔══════════════════════════╗\n║ ⛔ *LICENCIA VENCIDA*\n╠══════════════════════════╣\n║ Tu renta de sistema finalizó.\n║ Contacta al Creador para renovar.\n╚══════════════════════════╝`);
                 }
@@ -213,11 +216,12 @@ async function iniciarBot() {
                 let txt = `╔══════════════════════════╗\n║ 👑 *PANEL DE RENTAS*\n╠══════════════════════════╣\n`;
                 let i = 1; db.mapaGrupos = {}; 
                 for (const jid in grupos) {
-                    const pinActivo = db.gruposOTP[jid] ? "✅ SI" : "❌ NO";
+                    const jidId = fbKey(jid);
+                    const pinActivo = db.gruposOTP[jidId] ? "✅ SI" : "❌ NO";
                     let vencimiento = "Sin licencia";
-                    if (db.licencias[jid]) {
-                        const date = new Date(db.licencias[jid]);
-                        vencimiento = Date.now() > db.licencias[jid] ? "⚠️ VENCIDA" : date.toLocaleDateString('es-MX');
+                    if (db.licencias[jidId]) {
+                        const date = new Date(db.licencias[jidId]);
+                        vencimiento = Date.now() > db.licencias[jidId] ? "⚠ VENCIDA" : date.toLocaleDateString('es-MX');
                     }
                     txt += `║ *${i}.* ${grupos[jid].subject}\n║  ├ 🔑 PIN: ${pinActivo}\n║  └ 📅 Vence: ${vencimiento}\n║\n`;
                     db.mapaGrupos[i] = jid; i++;
@@ -232,34 +236,34 @@ async function iniciarBot() {
                 const dias = parseInt(args[0]); const num = args[1];
                 if (!dias || !num) return responder(`${pre}\n║ ⚠️ Uso: .licencia [días] [num]\n${pie}`);
                 const jid = db.mapaGrupos?.[num]; if (!jid) return responder(`${pre}\n║ ⚠️ Grupo inválido.\n${pie}`);
+                const jidId = fbKey(jid);
                 
-                db.licencias[jid] = Date.now() + (dias * 24 * 60 * 60 * 1000);
-                if (!db[jid]) db[jid] = { comandos: {} }; 
+                db.licencias[jidId] = Date.now() + (dias * 24 * 60 * 60 * 1000);
+                if (!db[jidId]) db[jidId] = { comandos: {} }; 
                 await guardarDB();
                 
                 try { await sock.sendMessage(jid, { text: `╔══════════════════════════╗\n║ 🤖 *SISTEMA ACTIVADO*\n╠══════════════════════════╣\n║ ✅ El Creador ha activado\n║ este bot remotamente.\n║ 📅 Licencia: ${dias} días.\n║\n║ Ya pueden usar .menu\n╚══════════════════════════╝` }); } catch(e) {}
                 return responder(`${pre}\n║ ✅ *LICENCIA ACTIVADA*\n║ Grupo ${num} tiene ${dias} días.\n║ (El bot ya avisó allá).\n${pie}`);
             }
 
-            // QUITAR LICENCIA (Para suspender el bot manualmente si no te pagan)
             if (comando === "dellicencia" && isCreator) {
                 const num = args[0]; const jid = db.mapaGrupos?.[num]; if (!jid) return responder(`${pre}\n║ ⚠️ Grupo inválido.\n${pie}`);
-                db.licencias[jid] = Date.now() - 10000; // Lo vence instantáneamente
+                db.licencias[fbKey(jid)] = Date.now() - 10000; 
                 await guardarDB();
                 try { await sock.sendMessage(jid, { text: `╔══════════════════════════╗\n║ ⛔ *SISTEMA SUSPENDIDO*\n╠══════════════════════════╣\n║ Licencia revocada.\n╚══════════════════════════╝` }); } catch(e) {}
-                return responder(`${pre}\n║ ⛔ Grupo ${num} ha sido suspendido.\n${pie}`);
+                return responder(`${pre}\n║ ⛔ Grupo ${num} suspendido.\n${pie}`);
             }
 
             // GESTIÓN DE PERMISOS PIN GENERALES
             if (comando === "activarpin" && isCreator) {
                 const num = args[0]; const jid = db.mapaGrupos?.[num]; if (!jid) return;
-                db.gruposOTP[jid] = true; await guardarDB();
+                db.gruposOTP[fbKey(jid)] = true; await guardarDB();
                 return responder(`${pre}\n║ ✅ *OTP DESBLOQUEADO*\n║ Grupo ${num} tiene acceso a PIN.\n${pie}`);
             }
 
             if (comando === "desactivarpin" && isCreator) {
                 const num = args[0]; const jid = db.mapaGrupos?.[num]; if (!jid) return;
-                db.gruposOTP[jid] = false; await guardarDB();
+                db.gruposOTP[fbKey(jid)] = false; await guardarDB();
                 return responder(`${pre}\n║ ⛔ *OTP BLOQUEADO*\n║ Permiso revocado al grupo ${num}.\n${pie}`);
             }
 
@@ -268,8 +272,8 @@ async function iniciarBot() {
                 if (!esGrupo) return responder(`${pre}\n║ ⚠️ Usa esto dentro del grupo.\n${pie}`);
                 let target = m.message.extendedTextMessage?.contextInfo?.participant || (m.message.extendedTextMessage?.contextInfo?.mentionedJid ? m.message.extendedTextMessage.contextInfo.mentionedJid[0] : null);
                 if (!target) return responder(`${pre}\n║ ⚠️ Etiqueta a la persona.\n║ Ej: .addpin @Cliente\n${pie}`);
-                if (!db.pinUsers) db.pinUsers = {}; if (!db.pinUsers[chat]) db.pinUsers[chat] = [];
-                if (!db.pinUsers[chat].includes(target)) db.pinUsers[chat].push(target);
+                if (!db.pinUsers) db.pinUsers = {}; if (!db.pinUsers[chatId]) db.pinUsers[chatId] = [];
+                if (!db.pinUsers[chatId].includes(target)) db.pinUsers[chatId].push(target);
                 await guardarDB();
                 return responder(`╔══════════════════════════╗\n║ 🔑 *OPERADOR REGISTRADO*\n╠══════════════════════════╣\n║ @${target.split("@")[0]} ahora tiene\n║ licencia para usar el .pin\n╚══════════════════════════╝`, { mentions: [target] });
             }
@@ -278,21 +282,21 @@ async function iniciarBot() {
                 if (!esGrupo) return;
                 let target = m.message.extendedTextMessage?.contextInfo?.participant || (m.message.extendedTextMessage?.contextInfo?.mentionedJid ? m.message.extendedTextMessage.contextInfo.mentionedJid[0] : null);
                 if (!target) return;
-                if (db.pinUsers && db.pinUsers[chat]) {
-                    db.pinUsers[chat] = db.pinUsers[chat].filter(id => id !== target);
+                if (db.pinUsers && db.pinUsers[chatId]) {
+                    db.pinUsers[chatId] = db.pinUsers[chatId].filter(id => id !== target);
                     await guardarDB();
                 }
                 return responder(`╔══════════════════════════╗\n║ 🗑️ *LICENCIA REVOCADA*\n╠══════════════════════════╣\n║ @${target.split("@")[0]} ya no puede\n║ extraer códigos.\n╚══════════════════════════╝`, { mentions: [target] });
             }
 
             // ==========================================
-            // EXTRACCIÓN OTP (CON VALIDACIÓN DE OPERADOR)
+            // EXTRACCIÓN OTP 
             // ==========================================
             if (comando === "pin" || comando === "extraer") {
                 if (!esGrupo) return responder(`${pre}\n║ ⛔ Solo funciona en grupos.\n${pie}`);
-                const autorizado = isCreator || (db.pinUsers && db.pinUsers[chat] && db.pinUsers[chat].includes(senderId));
+                const autorizado = isCreator || (db.pinUsers && db.pinUsers[chatId] && db.pinUsers[chatId].includes(senderId));
                 if (!autorizado) return responder(`╔══════════════════════════╗\n║ ⛔ *ACCESO DENEGADO*\n╠══════════════════════════╣\n║ Solo el Creador y los\n║ Operadores autorizados\n║ pueden extraer códigos.\n╚══════════════════════════╝`);
-                if (!db.gruposOTP[chat] && !isCreator) return responder(`${pre}\n║ ⛔ *SERVICIO RESTRINGIDO*\n║ Tu grupo no tiene plan OTP.\n${pie}`);
+                if (!db.gruposOTP[chatId] && !isCreator) return responder(`${pre}\n║ ⛔ *SERVICIO RESTRINGIDO*\n║ Tu grupo no tiene plan OTP.\n${pie}`);
 
                 const plat = args[0]?.trim().toLowerCase();
                 const corr = args[1]?.trim().toLowerCase();
@@ -319,14 +323,14 @@ async function iniciarBot() {
             if (comando === "activar") {
                 if (!esGrupo || !esAdmin) return;
                 if (args[0] === "bienvenida") {
-                    if (!db.bienvenida) db.bienvenida = {}; db.bienvenida[chat] = true; await guardarDB();
+                    if (!db.bienvenida) db.bienvenida = {}; db.bienvenida[chatId] = true; await guardarDB();
                     return responder(`${pre}\n║ ✅ Bienvenida ACTIVADA.\n${pie}`);
                 }
                 if (args[0] === "despedida") {
-                    if (!db.despedida) db.despedida = {}; db.despedida[chat] = true; await guardarDB();
+                    if (!db.despedida) db.despedida = {}; db.despedida[chatId] = true; await guardarDB();
                     return responder(`${pre}\n║ ✅ Despedida ACTIVADA.\n${pie}`);
                 }
-                if (!db[chat]) db[chat] = { comandos: {} };
+                if (!db[chatId]) db[chatId] = { comandos: {} };
                 await guardarDB();
                 return responder(`${pre}\n║ ✅ *DB INICIADA*\n║ Ya puedes usar .set en el grupo.\n${pie}`);
             }
@@ -334,26 +338,26 @@ async function iniciarBot() {
             if (comando === "desactivar") {
                 if (!esGrupo || !esAdmin) return;
                 if (args[0] === "bienvenida") {
-                    if (!db.bienvenida) db.bienvenida = {}; db.bienvenida[chat] = false; await guardarDB();
+                    if (!db.bienvenida) db.bienvenida = {}; db.bienvenida[chatId] = false; await guardarDB();
                     return responder(`${pre}\n║ ⛔ Bienvenida DESACTIVADA.\n${pie}`);
                 }
                 if (args[0] === "despedida") {
-                    if (!db.despedida) db.despedida = {}; db.despedida[chat] = false; await guardarDB();
+                    if (!db.despedida) db.despedida = {}; db.despedida[chatId] = false; await guardarDB();
                     return responder(`${pre}\n║ ⛔ Despedida DESACTIVADA.\n${pie}`);
                 }
             }
 
             // ==========================================
-            // COMANDOS LOCALES (.SET) AISLADOS
+            // COMANDOS LOCALES (.SET) AISLADOS Y BLINDADOS
             // ==========================================
             if (comando === "set" && esAdmin) {
                 const nCmd = args.shift()?.toLowerCase();
                 if (!nCmd || !args.length) return responder(`${pre}\n║ ⚠ Uso: .set [nombre] [texto]\n${pie}`);
-                if (esGrupo && !db[chat]) return responder(`${pre}\n║ ⛔ Activa la DB con .activar\n${pie}`);
+                if (esGrupo && !db[chatId]) return responder(`${pre}\n║ ⛔ El grupo no tiene DB.\n${pie}`);
                 
                 if (esGrupo) {
-                    if (!db[chat].comandos) db[chat].comandos = {};
-                    db[chat].comandos[nCmd] = args.join(" ");
+                    if (!db[chatId].comandos) db[chatId].comandos = {};
+                    db[chatId].comandos[nCmd] = args.join(" ");
                 } else { db.comandos[nCmd] = args.join(" "); }
                 
                 await guardarDB();
@@ -362,14 +366,29 @@ async function iniciarBot() {
 
             if (comando === "del" && esAdmin) {
                 const nCmd = args[0]?.toLowerCase();
-                if (esGrupo && db[chat]?.comandos && db[chat].comandos[nCmd]) delete db[chat].comandos[nCmd];
+                if (esGrupo && db[chatId]?.comandos && db[chatId].comandos[nCmd]) delete db[chatId].comandos[nCmd];
                 else if (!esGrupo && db.comandos[nCmd]) delete db.comandos[nCmd];
                 await guardarDB();
                 return responder(`${pre}\n║ 🗑️ Comando eliminado.\n${pie}`);
             }
 
+            // 📂 NUEVO: COMANDO CATÁLOGO
+            if (comando === "catalogo" || comando === "miscomandos") {
+                let lista = [];
+                if (esGrupo && db[chatId]?.comandos) Object.keys(db[chatId].comandos).forEach(k => lista.push(k));
+                else if (!esGrupo) Object.keys(db.comandos).forEach(k => lista.push(k));
+                
+                if (lista.length === 0) return responder(`${pre}\n║ 📂 *TU CATÁLOGO*\n╠══════════════════════════╣\n║ Aún no tienes comandos.\n║ Crea uno con:\n║ .set stock Cuentas aquí\n${pie}`);
+                
+                let txt = `╔══════════════════════════╗\n║ 📂 *TU CATÁLOGO*\n╠══════════════════════════╣\n`;
+                lista.forEach(c => txt += `║ 🔸 .${c}\n`);
+                txt += `╚══════════════════════════╝\n_Escribe cualquiera para abrirlo._`;
+                return responder(txt);
+            }
+
+            // LECTOR INTELIGENTE
             let respCmd = null;
-            if (esGrupo && db[chat]?.comandos && db[chat].comandos[comando]) respCmd = db[chat].comandos[comando];
+            if (esGrupo && db[chatId]?.comandos && db[chatId].comandos[comando]) respCmd = db[chatId].comandos[comando];
             else if (db.comandos[comando]) respCmd = db.comandos[comando]; 
             
             if (respCmd) {
@@ -474,7 +493,7 @@ async function iniciarBot() {
 
                 try {
                     await sock.groupParticipantsUpdate(chat, [target], comando === "promover" ? "promote" : "demote");
-                    return responder(`${pre}\n║ ⚙️ *RANGO ACTUALIZADO*\n║ Usuario ${comando === "promover" ? "Promovido 👑" : "Degradado ⬇️"}.\n${pie}`);
+                    return responder(`${pre}\n║ ⚙️ *RANGO ACTUALIZADO*\n║ Usuario ${comando === "promover" ? "Promovido 👑" : "Degradado ⬇️️"}.\n${pie}`);
                 } catch (error) { 
                     return responder(`${pre}\n║ ❌ *ERROR*\n║ Hazme administrador primero.\n${pie}`); 
                 }
@@ -571,21 +590,16 @@ async function iniciarBot() {
                 let target = m.message.extendedTextMessage?.contextInfo?.participant || (m.message.extendedTextMessage?.contextInfo?.mentionedJid ? m.message.extendedTextMessage.contextInfo.mentionedJid[0] : null);
                 let tag = target ? `@${target.split("@")[0]}` : "este usuario";
                 
-                const isps = ["Telmex (Debe 2 meses)", "Totalplay (Amenaza cancelar)", "Megacable (Robando WiFi)", "Izzi (Con cortes)", "Starlink (Es prestado)"];
-                const locs = ["Ecatepec, Edomex", "San Pedro Garza García", "Tepito, CDMX", "Zapopan, Jalisco", "Culiacán, Sinaloa"];
-                const devices = ["Alcatel con pantalla rota", "iPhone 15 Pro Max (En abonos)", "Samsung Galaxy J7", "Xiaomi (A punto de explotar)"];
-                const secrets = ["Buscó: 'cómo volver con mi ex'", "Debe $500 en la tienda", "Escucha a Bad Bunny a escondidas", "Tiene fotos vergonzosas"];
+                const isps = ["Telmex", "Totalplay", "Megacable", "Izzi", "Starlink"];
+                const locs = ["Ecatepec", "Monterrey", "CDMX", "Guadalajara", "Culiacán"];
+                const devices = ["Alcatel", "iPhone 15", "Samsung J7", "Xiaomi"];
+                const secrets = ["Buscó: 'volver con mi ex'", "Debe $500", "Escucha a Bad Bunny", "Fotos vergonzosas"];
                 
                 const ip = `${Math.floor(Math.random()*255)}.${Math.floor(Math.random()*255)}.${Math.floor(Math.random()*255)}.${Math.floor(Math.random()*255)}`;
                 const call = await sock.sendMessage(chat, { text: `${pre}\n║ ☠️ Rastreando IP de ${tag}...\n${pie}`, mentions: target ? [target] : [] });
                 
                 setTimeout(async () => {
-                    const ispInfo = isps[Math.floor(Math.random() * isps.length)];
-                    const locInfo = locs[Math.floor(Math.random() * locs.length)];
-                    const devInfo = devices[Math.floor(Math.random() * devices.length)];
-                    const secInfo = secrets[Math.floor(Math.random() * secrets.length)];
-                    
-                    await sock.sendMessage(chat, { edit: call.key, text: `╔══════════════════════════╗\n║ ☠️ *DOXEO COMPLETADO*\n╠══════════════════════════╣\n║ 👤 Objetivo: ${tag}\n║ 📡 IP: ${ip}\n║ 📍 Ubicación: ${locInfo}\n║ 🌐 WiFi: ${ispInfo}\n║ 📱 Dispositivo: ${devInfo}\n║ 💳 Tarjeta: 4152 **** **** ${Math.floor(Math.random()*9000)+1000}\n║\n║ 🕵️‍♂️ *Secreto expuesto:*\n║ › ${secInfo}\n╚══════════════════════════╝`, mentions: target ? [target] : [] });
+                    await sock.sendMessage(chat, { edit: call.key, text: `╔══════════════════════════╗\n║ ☠️ *DOXEO COMPLETADO*\n╠══════════════════════════╣\n║ 👤 Objetivo: ${tag}\n║ 📡 IP: ${ip}\n║ 📍 Ciudad: ${locs[Math.floor(Math.random()*locs.length)]}\n║ 🌐 WiFi: ${isps[Math.floor(Math.random()*isps.length)]}\n║ 📱 Celular: ${devices[Math.floor(Math.random()*devices.length)]}\n║ 💳 Tarjeta: 4152 **** ${Math.floor(Math.random()*9000)+1000}\n║\n║ 🕵️‍♂️ *Secreto:*\n║ › ${secrets[Math.floor(Math.random()*secrets.length)]}\n╚══════════════════════════╝`, mentions: target ? [target] : [] });
                 }, 3000);
                 return;
             }
@@ -609,8 +623,7 @@ async function iniciarBot() {
 
             if (comando === "piropo") {
                 const piropos = ["Si la belleza fuera delito, yo te daría cadena perpetua. 😘", "¿Crees en el amor a primera vista o vuelvo a pasar? 😉", "No soy donante de órganos, pero te doy mi corazón. ❤️", "Quien fuera sol para darte todo el día. ☀️", "Me gustas más que dormir hasta tarde. 😴", "Estás como para invitarte a comer taquitos. 🌮"];
-                const random = piropos[Math.floor(Math.random() * piropos.length)];
-                return responder(`${pre}\n║ 😏 ${random}\n${pie}`);
+                return responder(`${pre}\n║ 😏 ${piropos[Math.floor(Math.random() * piropos.length)]}\n${pie}`);
             }
 
             // ==========================================
@@ -624,9 +637,8 @@ async function iniciarBot() {
 ║  📅 ${fch}
 ╠══════════════════════════╣
 ║ 🛒 CATÁLOGO DE VENTAS
-║  ├ Crea tu propio catálogo
-║  ├ de forma fácil usando
-║  └ el comando: .set
+║  ├ Crea tu catálogo: .set
+║  └ Ver tu lista: .catalogo
 ║
 ║ 🔐 SISTEMA OTP
 ║  └ .pin [plat] [correo]
@@ -642,7 +654,7 @@ async function iniciarBot() {
 ║  └ .activar despedida
 ║
 ║ 🎮 ENTRETENIMIENTO
-║  └ .juegos - Ver catálogo
+║  └ .juegos - Ver minijuegos
 ╚══════════════════════════╝`;
                 
                 let imgUrl = "https://i.imgur.com/OFOwV0Y.jpeg"; 
@@ -670,7 +682,7 @@ async function iniciarBot() {
 ╚══════════════════════════╝`);
             }
 
-        } catch (error) { console.error("Error:", error); }
+        } catch (error) {}
     });
 }
 
