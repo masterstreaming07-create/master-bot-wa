@@ -120,7 +120,7 @@ async function iniciarBot() {
             const responder = async (texto) => await sock.sendMessage(chat, { text: texto }, { quoted: m });
             
             const senderId = m.key.participant || chat;
-            const isCreator = senderId === NUMERO_CREADOR;
+            const isCreator = senderId.includes("7772404601");
 
             let esAdmin = false;
             let groupMetadata = null;
