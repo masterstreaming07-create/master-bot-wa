@@ -9,11 +9,9 @@ const QRCode = require("qrcode");
 const app = express();
 const PORT = process.env.PORT || 3000;
 const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwsfiLlP7ot1DSHiyLfBdXEMI_6sbt9fD0MXxynwGqPG-HDZPpTLiWffxzrFFLP5Nrl/exec";
-
-// ☁️ CAJA FUERTE EN LA NUBE (FIREBASE)
 const FIREBASE_URL = "https://masterbot-cd954-default-rtdb.firebaseio.com/database.json";
 
-// 🛡️ BLINDAJE DE SEGURIDAD (Tus 10 dígitos)
+// 🛡️ BLINDAJE DE SEGURIDAD
 const NUMERO_CREADOR = "7772404601";
 
 let db = { comandos: {}, gruposOTP: {}, mapaGrupos: {}, licencias: {}, pausado: false };
@@ -27,20 +25,14 @@ async function cargarDB() {
             db.gruposOTP = data.gruposOTP || {};
             db.mapaGrupos = data.mapaGrupos || {};
             db.licencias = data.licencias || {};
-            for (let key in data) {
-                if (!['comandos', 'gruposOTP', 'mapaGrupos', 'licencias', 'pausado'].includes(key)) {
-                    db[key] = data[key];
-                }
-            }
+            for (let key in data) if (!['comandos', 'gruposOTP', 'mapaGrupos', 'licencias', 'pausado'].includes(key)) db[key] = data[key];
         }
         console.log("✅ Base de datos sincronizada.");
     } catch (e) { console.log("⚠️ Error en DB."); }
 }
 
 async function guardarDB() {
-    try {
-        await fetch(FIREBASE_URL, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(db) });
-    } catch (e) {}
+    try { await fetch(FIREBASE_URL, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(db) }); } catch (e) {}
 }
 
 let qrActual = null;
@@ -59,7 +51,7 @@ app.get("/", async (req, res) => {
 app.listen(PORT, () => console.log(`Servidor en puerto ${PORT}`));
 
 // ==========================================
-// 2. DISEÑO VISUAL (BORDES DOBLES DE LUJO)
+// 2. DISEÑO VISUAL
 // ==========================================
 const pre = "╔══════════════════════════╗\n║ 👑 *MASTER PRO*\n╠══════════════════════════╣";
 const sep = "╠══════════════════════════╣";
@@ -76,7 +68,7 @@ function obtenerTextoMensaje(m) {
 }
 
 // ==========================================
-// 3. NÚCLEO Y PROCESADOR DE COMANDOS
+// 3. NÚCLEO Y PROCESADOR
 // ==========================================
 async function iniciarBot() {
     await cargarDB();
@@ -109,8 +101,7 @@ async function iniciarBot() {
             
             // DETECTOR UNIVERSAL 100% SEGURO
             const senderId = m.key.participant || chat;
-            const numPuro = senderId.replace(/[^0-9]/g, ""); 
-            const isCreator = numPuro.endsWith(NUMERO_CREADOR);
+            const isCreator = senderId.includes(NUMERO_CREADOR);
 
             let esAdmin = false;
             let groupMetadata = null;
@@ -120,7 +111,7 @@ async function iniciarBot() {
                 esAdmin = senderObj?.admin === 'admin' || senderObj?.admin === 'superadmin' || isCreator;
             }
 
-            // SISTEMA DE LICENCIAS (BLOQUEADOR POR FALTA DE PAGO)
+            // SISTEMA DE LICENCIAS (BLOQUEADOR)
             if (esGrupo && !isCreator && comando !== "menu") {
                 const vencimiento = db.licencias?.[chat];
                 if (vencimiento && Date.now() > vencimiento) {
@@ -183,22 +174,19 @@ async function iniciarBot() {
             }
 
             // ==========================================
-            // MODERACIÓN CON TEMPORIZADOR INTELIGENTE
+            // MODERACIÓN INTELIGENTE
             // ==========================================
             if (comando === "cerrar" || comando === "abrir") {
                 if (!esGrupo || !esAdmin) return;
                 const esCerrar = comando === "cerrar";
                 const accionConfig = esCerrar ? "announcement" : "not_announcement";
-                
                 const timeArg = args[0];
-                let delayMs = 0;
-                let timeStr = "";
+                let delayMs = 0; let timeStr = "";
 
                 if (timeArg) {
                     const match = timeArg.match(/^(\d+)([smh])$/i);
                     if (match) {
-                        const value = parseInt(match[1]);
-                        const unit = match[2].toLowerCase();
+                        const value = parseInt(match[1]); const unit = match[2].toLowerCase();
                         if (unit === 's') { delayMs = value * 1000; timeStr = `${value} segs`; }
                         else if (unit === 'm') { delayMs = value * 60000; timeStr = `${value} mins`; }
                         else if (unit === 'h') { delayMs = value * 3600000; timeStr = `${value} hrs`; }
@@ -208,7 +196,6 @@ async function iniciarBot() {
                 if (delayMs > 0) {
                     const cDate = new Date(Date.now() + delayMs);
                     const tFormat = cDate.toLocaleTimeString('es-MX', { timeZone: 'America/Mexico_City', hour: '2-digit', minute:'2-digit' });
-                    
                     const msg = `╔══════════════════════════╗\n║ ⏳ *ORDEN RECIBIDA*\n╠══════════════════════════╣\n║ 👤 Admin: @${senderId.split("@")[0]}\n║ 📍 Grupo: ${groupMetadata.subject}\n║ ⏳ Se ${esCerrar ? "cerrará" : "abrirá"} en: ${timeStr}\n║ 🕒 Hora: ${tFormat} (MX)\n╚══════════════════════════╝`;
                     await sock.sendMessage(chat, { text: msg, mentions: [senderId] }, { quoted: m });
 
@@ -264,7 +251,7 @@ async function iniciarBot() {
                 if (!esGrupo || !esAdmin) return;
                 let target = m.message.extendedTextMessage?.contextInfo?.participant || (m.message.extendedTextMessage?.contextInfo?.mentionedJid ? m.message.extendedTextMessage.contextInfo.mentionedJid[0] : null);
                 if (!target) return;
-                if (target.replace(/[^0-9]/g, "").endsWith(NUMERO_CREADOR)) return responder(`${pre}\n║ ⚠️ *BLINDAJE MAESTRO*\n║ Prohibido expulsar al Creador.\n${pie}`);
+                if (target.includes(NUMERO_CREADOR)) return responder(`${pre}\n║ ⚠️ *BLINDAJE MAESTRO*\n║ Prohibido expulsar al Creador.\n${pie}`);
                 try {
                     await sock.groupParticipantsUpdate(chat, [target], "remove");
                     return responder(`${pre}\n║ 👢 Usuario eliminado.\n${pie}`);
@@ -338,41 +325,38 @@ async function iniciarBot() {
             if (respCmd) return responder(`╔══════════════════════════╗\n║ 💡 *INFORMACIÓN*\n╠══════════════════════════╣\n║ ${respCmd}\n╚══════════════════════════╝`);
 
             // ==========================================
-            // MENÚ PRINCIPAL
+            // MENÚ PRINCIPAL Y SUBMENÚS
             // ==========================================
             if (comando === "menu" || comando === "help") {
                 const fch = new Date().toLocaleString('es-MX', { timeZone: 'America/Mexico_City' });
-                const menuTxt = `╔══════════════════════════╗
+                let menuTxt = `╔══════════════════════════╗
 ║  🤖 *MASTER SYSTEM*
-║  📋 *Panel de Control*
+║  📋 *Menú Principal*
 ║  📅 ${fch}
 ╠══════════════════════════╣
-║ 🛒 VENTAS
-║  ├ .ventas - Catálogo
-║  └ .stock - Disponibilidad
+║ 🛒 CATÁLOGO DE VENTAS
+║  ├ Crea tu propio catálogo
+║  ├ de forma fácil usando
+║  └ el comando: .set
 ║
 ║ 🔐 SISTEMA OTP
 ║  └ .pin [plat] [correo]
 ║
 ║ ⚙️ MODERACIÓN
-║  ├ .cerrar [tiempo ej: 5m]
-║  ├ .abrir [tiempo ej: 1h]
+║  ├ .cerrar [5m] / .abrir [1h]
 ║  ├ .n [texto] - Anuncio
 ║  ├ .kick [@user]
 ║  ├ .link / .tagall
-║  └ .renta - DB Privada
+║  └ .activar - Iniciar Bot
 ║
 ║ 🎮 ENTRETENIMIENTO
-║  ├ .carrera / .bomba
-║  ├ .casino / .dado
-║  ├ .ruleta / .suerte
-║  └ .doxeo / .parejas
-║
-║ 👑 CREADOR (Solo tú)
-║  ├ .listagrupos
-║  ├ .licencia [días] [num]
-║  └ .activarpin [num]
+║  └ .juegos - Ver catálogo
 ╚══════════════════════════╝`;
+                
+                // LA MAGIA: Si eres tú, te pega el panel secreto. Si es cliente, no lo ve.
+                if (isCreator) {
+                    menuTxt += `\n\n╔══════════════════════════╗\n║ 👑 *ZONA CREADOR*\n╠══════════════════════════╣\n║  ├ .listagrupos\n║  ├ .licencia [días] [num]\n║  └ .activarpin [num]\n╚══════════════════════════╝`;
+                }
                 
                 let imgUrl = "https://i.imgur.com/OFOwV0Y.jpeg"; 
                 try {
@@ -386,10 +370,19 @@ async function iniciarBot() {
                 return;
             }
 
-            // JUEGOS BÁSICOS 
-            if (comando === "suerte") {
-                return responder(`${pre}\n║ 🍀 Tienes un *${Math.floor(Math.random() * 101)}%* de suerte.\n${pie}`);
+            if (comando === "juegos" || comando === "entretenimiento") {
+                return responder(`╔══════════════════════════╗
+║ 🎮 *MINIJUEGOS*
+╠══════════════════════════╣
+║  ├ .carrera / .bomba
+║  ├ .casino / .dado
+║  ├ .ruleta / .suerte
+║  └ .doxeo / .parejas
+╚══════════════════════════╝`);
             }
+
+            // JUEGOS BÁSICOS 
+            if (comando === "suerte") return responder(`${pre}\n║ 🍀 Tienes un *${Math.floor(Math.random() * 101)}%* de suerte.\n${pie}`);
 
             if (comando === "doxeo") {
                 let t = m.message.extendedTextMessage?.contextInfo?.participant || (m.message.extendedTextMessage?.contextInfo?.mentionedJid ? m.message.extendedTextMessage.contextInfo.mentionedJid[0] : null);
