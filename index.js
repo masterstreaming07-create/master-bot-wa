@@ -445,6 +445,27 @@ async function iniciarBot() {
                 } catch (e) {}
             }
 
+            if (comando === "promover" || comando === "degradar") {
+                if (!esGrupo || !esAdmin) return;
+                let target = m.message.extendedTextMessage?.contextInfo?.participant || (m.message.extendedTextMessage?.contextInfo?.mentionedJid ? m.message.extendedTextMessage.contextInfo.mentionedJid[0] : null);
+                if (!target) return responder(`${pre}\n║ ⚠ Menciona a alguien.\n${pie}`);
+                
+                if (target === db.creador && comando === "degradar") {
+                    return responder(`${pre}\n║ ⚠️ *ALERTA DE SEGURIDAD*\n║ El Creador no puede ser degradado.\n${pie}`);
+                }
+                
+                if (comando === "degradar" && groupMetadata.participants.find(p => p.id === target)?.admin === 'superadmin') {
+                    return responder(`${pre}\n║ 🛡 *BLINDAJE*\n║ No se puede degradar al dueño del grupo.\n${pie}`);
+                }
+
+                try {
+                    await sock.groupParticipantsUpdate(chat, [target], comando === "promover" ? "promote" : "demote");
+                    return responder(`${pre}\n║ ⚙️ *RANGO ACTUALIZADO*\n║ Usuario ${comando === "promover" ? "Promovido 👑" : "Degradado ⬇️"}.\n${pie}`);
+                } catch (error) { 
+                    return responder(`${pre}\n║ ❌ *ERROR*\n║ Hazme administrador primero.\n${pie}`); 
+                }
+            }
+
             if (comando === "link") {
                 if (!esGrupo || !esAdmin) return;
                 try {
