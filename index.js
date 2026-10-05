@@ -13,8 +13,8 @@ const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwsfiLlP7ot1DSH
 // ☁️ CAJA FUERTE EN LA NUBE (FIREBASE)
 const FIREBASE_URL = "https://masterbot-cd954-default-rtdb.firebaseio.com/database.json";
 
-// 🛡️ BLINDAJE DE SEGURIDAD: Tu número oficial
-const NUMERO_CREADOR = "5218716926709@s.whatsapp.net";
+// 🛡️ BLINDAJE DE SEGURIDAD: TU NÚMERO REAL
+const NUMERO_CREADOR = "7772404601";
 
 let db = { comandos: {}, gruposOTP: {}, mapaGrupos: {}, pausado: false };
 
@@ -120,7 +120,7 @@ async function iniciarBot() {
             const responder = async (texto) => await sock.sendMessage(chat, { text: texto }, { quoted: m });
             
             const senderId = m.key.participant || chat;
-            const isCreator = senderId.includes("7772404601");
+            const isCreator = senderId.includes(NUMERO_CREADOR);
 
             let esAdmin = false;
             let groupMetadata = null;
@@ -287,7 +287,6 @@ async function iniciarBot() {
                 
                 const fch = new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'long' });
                 
-                // Menciones y Truco de "Leer más..." para ocultar los @
                 const menciones = groupMetadata.participants.map(p => p.id);
                 const etiquetasVisibles = menciones.map(m => `@${m.split("@")[0]}`).join(" ");
                 const leerMas = String.fromCharCode(8206).repeat(4000); 
@@ -324,7 +323,7 @@ async function iniciarBot() {
                 let target = m.message.extendedTextMessage?.contextInfo?.participant || (m.message.extendedTextMessage?.contextInfo?.mentionedJid ? m.message.extendedTextMessage.contextInfo.mentionedJid[0] : null);
                 if (!target) return responder(`${pre} ⚠ Menciona o responde al usuario.${pie}`);
                 
-                if (target === NUMERO_CREADOR) return responder(`${pre} ⚠️ *ALERTA DE SEGURIDAD*${sep} El protocolo maestro me prohíbe expulsar a mi Creador.${pie}`);
+                if (target.includes(NUMERO_CREADOR)) return responder(`${pre} ⚠️ *ALERTA DE SEGURIDAD*${sep} El protocolo maestro me prohíbe expulsar a mi Creador.${pie}`);
                 
                 const targetObj = groupMetadata.participants.find(p => p.id === target);
                 if (targetObj?.admin) return responder(`${pre} 🛡️ *BLINDAJE*${sep} Imposible expulsar a otro Administrador.${pie}`);
@@ -340,7 +339,7 @@ async function iniciarBot() {
                 let target = m.message.extendedTextMessage?.contextInfo?.participant || (m.message.extendedTextMessage?.contextInfo?.mentionedJid ? m.message.extendedTextMessage.contextInfo.mentionedJid[0] : null);
                 if (!target) return;
                 
-                if (target === NUMERO_CREADOR && comando === "degradar") return responder(`${pre} ⚠️ *ALERTA DE SEGURIDAD*${sep} El Creador del Bot no puede ser degradado.${pie}`);
+                if (target.includes(NUMERO_CREADOR) && comando === "degradar") return responder(`${pre} ⚠️ *ALERTA DE SEGURIDAD*${sep} El Creador del Bot no puede ser degradado.${pie}`);
                 
                 if (comando === "degradar" && groupMetadata.participants.find(p => p.id === target)?.admin === 'superadmin') {
                     return responder(`${pre} 🛡 *BLINDAJE*${sep} No se puede degradar al dueño del grupo.${pie}`);
@@ -476,7 +475,7 @@ async function iniciarBot() {
                 const miembrosReales = miembros.filter(id => id !== sock.user.id.split(":")[0]+"@s.whatsapp.net");
                 const user1 = miembrosReales[Math.floor(Math.random() * miembrosReales.length)];
                 const user2 = miembrosReales[Math.floor(Math.random() * miembrosReales.length)];
-                return await sock.sendMessage(chat, { text: `${pre} 💘 *NUEVA PAREJA DETECTADA* 💘${sep} El sistema ha detectado tensión sexual entre:\n\n👉 @${user1.split("@")[0]}\n👉 @${user2.split("@")[0]}\n\n¡Ya bésense y dejen el drama! 👩‍❤️‍‍💋‍👨${pie}`, mentions: [user1, user2] });
+                return await sock.sendMessage(chat, { text: `${pre} 💘 *NUEVA PAREJA DETECTADA* 💘${sep} El sistema ha detectado tensión sexual entre:\n\n👉 @${user1.split("@")[0]}\n👉 @${user2.split("@")[0]}\n\n¡Ya bésense y dejen el drama! 👩‍❤️‍💋‍👨${pie}`, mentions: [user1, user2] });
             }
 
             if (comando === "piropo") {
