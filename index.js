@@ -117,7 +117,6 @@ async function iniciarBot() {
             const participants = anu.participants;
             
             for (let num of participants) {
-                // Obtener Foto de perfil (o la del bot si la tienen oculta)
                 let pfp;
                 try { pfp = await sock.profilePictureUrl(num, 'image'); } 
                 catch { 
@@ -184,11 +183,19 @@ async function iniciarBot() {
                 esAdmin = senderObj?.admin === 'admin' || senderObj?.admin === 'superadmin' || isCreator;
             }
 
-            // SISTEMA DE LICENCIAS (BLOQUEADOR)
-            if (esGrupo && !isCreator && comando !== "menu" && comando !== "nube") {
+            // ==========================================
+            // SISTEMA DE LICENCIAS (MURO DE PAGO DEFINITIVO)
+            // ==========================================
+            if (esGrupo && !isCreator && comando !== "menu") {
                 const vencimiento = db.licencias?.[chat];
-                if (vencimiento && Date.now() > vencimiento) {
-                    return responder(`${pre}\n║ ⛔ *LICENCIA VENCIDA*\n║ Tu renta de sistema finalizó.\n║ Contacta al Creador para renovar.\n${pie}`);
+                
+                // Si NUNCA ha tenido licencia (intento de uso gratis)
+                if (!vencimiento) {
+                    return responder(`╔══════════════════════════╗\n║ ⛔ *ACCESO DENEGADO*\n╠══════════════════════════╣\n║ Este grupo no tiene una\n║ licencia activa.\n║ Rentar bot: Contacta al Creador\n╚══════════════════════════╝`);
+                }
+                // Si ya se le venció la licencia
+                if (Date.now() > vencimiento) {
+                    return responder(`╔══════════════════════════╗\n║ ⛔ *LICENCIA VENCIDA*\n╠══════════════════════════╣\n║ Tu renta de sistema finalizó.\n║ Contacta al Creador para renovar.\n╚══════════════════════════╝`);
                 }
             }
 
@@ -210,7 +217,7 @@ async function iniciarBot() {
                     let vencimiento = "Sin licencia";
                     if (db.licencias[jid]) {
                         const date = new Date(db.licencias[jid]);
-                        vencimiento = Date.now() > db.licencias[jid] ? "⚠ VENCIDA" : date.toLocaleDateString('es-MX');
+                        vencimiento = Date.now() > db.licencias[jid] ? "⚠️ VENCIDA" : date.toLocaleDateString('es-MX');
                     }
                     txt += `║ *${i}.* ${grupos[jid].subject}\n║  ├ 🔑 PIN: ${pinActivo}\n║  └ 📅 Vence: ${vencimiento}\n║\n`;
                     db.mapaGrupos[i] = jid; i++;
@@ -232,6 +239,15 @@ async function iniciarBot() {
                 
                 try { await sock.sendMessage(jid, { text: `╔══════════════════════════╗\n║ 🤖 *SISTEMA ACTIVADO*\n╠══════════════════════════╣\n║ ✅ El Creador ha activado\n║ este bot remotamente.\n║ 📅 Licencia: ${dias} días.\n║\n║ Ya pueden usar .menu\n╚══════════════════════════╝` }); } catch(e) {}
                 return responder(`${pre}\n║ ✅ *LICENCIA ACTIVADA*\n║ Grupo ${num} tiene ${dias} días.\n║ (El bot ya avisó allá).\n${pie}`);
+            }
+
+            // QUITAR LICENCIA (Para suspender el bot manualmente si no te pagan)
+            if (comando === "dellicencia" && isCreator) {
+                const num = args[0]; const jid = db.mapaGrupos?.[num]; if (!jid) return responder(`${pre}\n║ ⚠️ Grupo inválido.\n${pie}`);
+                db.licencias[jid] = Date.now() - 10000; // Lo vence instantáneamente
+                await guardarDB();
+                try { await sock.sendMessage(jid, { text: `╔══════════════════════════╗\n║ ⛔ *SISTEMA SUSPENDIDO*\n╠══════════════════════════╣\n║ Licencia revocada.\n╚══════════════════════════╝` }); } catch(e) {}
+                return responder(`${pre}\n║ ⛔ Grupo ${num} ha sido suspendido.\n${pie}`);
             }
 
             // GESTIÓN DE PERMISOS PIN GENERALES
@@ -310,7 +326,6 @@ async function iniciarBot() {
                     if (!db.despedida) db.despedida = {}; db.despedida[chat] = true; await guardarDB();
                     return responder(`${pre}\n║ ✅ Despedida ACTIVADA.\n${pie}`);
                 }
-                // Si solo pone .activar (DB normal)
                 if (!db[chat]) db[chat] = { comandos: {} };
                 await guardarDB();
                 return responder(`${pre}\n║ ✅ *DB INICIADA*\n║ Ya puedes usar .set en el grupo.\n${pie}`);
@@ -333,7 +348,7 @@ async function iniciarBot() {
             // ==========================================
             if (comando === "set" && esAdmin) {
                 const nCmd = args.shift()?.toLowerCase();
-                if (!nCmd || !args.length) return responder(`${pre}\n║ ⚠️️ Uso: .set [nombre] [texto]\n${pie}`);
+                if (!nCmd || !args.length) return responder(`${pre}\n║ ⚠ Uso: .set [nombre] [texto]\n${pie}`);
                 if (esGrupo && !db[chat]) return responder(`${pre}\n║ ⛔ Activa la DB con .activar\n${pie}`);
                 
                 if (esGrupo) {
@@ -363,7 +378,7 @@ async function iniciarBot() {
             }
 
             // ==========================================
-            // MODERACIÓN INTELIGENTE 
+            // MODERACIÓN INTELIGENTE Y ANUNCIOS
             // ==========================================
             if (comando === "cerrar" || comando === "abrir") {
                 if (!esGrupo || !esAdmin) return;
@@ -402,7 +417,6 @@ async function iniciarBot() {
                 return;
             }
 
-            // COMANDO .N (ANUNCIO INVISIBLE)
             if (comando === "n") {
                 if (!esGrupo || !esAdmin) return;
                 let txtMsg = args.join(" ");
@@ -557,16 +571,21 @@ async function iniciarBot() {
                 let target = m.message.extendedTextMessage?.contextInfo?.participant || (m.message.extendedTextMessage?.contextInfo?.mentionedJid ? m.message.extendedTextMessage.contextInfo.mentionedJid[0] : null);
                 let tag = target ? `@${target.split("@")[0]}` : "este usuario";
                 
-                const isps = ["Telmex", "Totalplay", "Megacable", "Izzi", "Starlink"];
-                const locs = ["Ecatepec", "Monterrey", "CDMX", "Guadalajara", "Culiacán"];
-                const devices = ["Alcatel", "iPhone 15", "Samsung J7", "Xiaomi"];
-                const secrets = ["Buscó: 'volver con mi ex'", "Debe $500", "Escucha a Bad Bunny", "Fotos vergonzosas"];
+                const isps = ["Telmex (Debe 2 meses)", "Totalplay (Amenaza cancelar)", "Megacable (Robando WiFi)", "Izzi (Con cortes)", "Starlink (Es prestado)"];
+                const locs = ["Ecatepec, Edomex", "San Pedro Garza García", "Tepito, CDMX", "Zapopan, Jalisco", "Culiacán, Sinaloa"];
+                const devices = ["Alcatel con pantalla rota", "iPhone 15 Pro Max (En abonos)", "Samsung Galaxy J7", "Xiaomi (A punto de explotar)"];
+                const secrets = ["Buscó: 'cómo volver con mi ex'", "Debe $500 en la tienda", "Escucha a Bad Bunny a escondidas", "Tiene fotos vergonzosas"];
                 
                 const ip = `${Math.floor(Math.random()*255)}.${Math.floor(Math.random()*255)}.${Math.floor(Math.random()*255)}.${Math.floor(Math.random()*255)}`;
                 const call = await sock.sendMessage(chat, { text: `${pre}\n║ ☠️ Rastreando IP de ${tag}...\n${pie}`, mentions: target ? [target] : [] });
                 
                 setTimeout(async () => {
-                    await sock.sendMessage(chat, { edit: call.key, text: `╔══════════════════════════╗\n║ ☠️ *DOXEO COMPLETADO*\n╠══════════════════════════╣\n║ 👤 Objetivo: ${tag}\n║ 📡 IP: ${ip}\n║ 📍 Ciudad: ${locs[Math.floor(Math.random()*locs.length)]}\n║ 🌐 WiFi: ${isps[Math.floor(Math.random()*isps.length)]}\n║ 📱 Celular: ${devices[Math.floor(Math.random()*devices.length)]}\n║ 💳 Tarjeta: 4152 **** ${Math.floor(Math.random()*9000)+1000}\n║\n║ 🕵️‍♂️ *Secreto:*\n║ › ${secrets[Math.floor(Math.random()*secrets.length)]}\n╚══════════════════════════╝`, mentions: target ? [target] : [] });
+                    const ispInfo = isps[Math.floor(Math.random() * isps.length)];
+                    const locInfo = locs[Math.floor(Math.random() * locs.length)];
+                    const devInfo = devices[Math.floor(Math.random() * devices.length)];
+                    const secInfo = secrets[Math.floor(Math.random() * secrets.length)];
+                    
+                    await sock.sendMessage(chat, { edit: call.key, text: `╔══════════════════════════╗\n║ ☠️ *DOXEO COMPLETADO*\n╠══════════════════════════╣\n║ 👤 Objetivo: ${tag}\n║ 📡 IP: ${ip}\n║ 📍 Ubicación: ${locInfo}\n║ 🌐 WiFi: ${ispInfo}\n║ 📱 Dispositivo: ${devInfo}\n║ 💳 Tarjeta: 4152 **** **** ${Math.floor(Math.random()*9000)+1000}\n║\n║ 🕵️‍♂️ *Secreto expuesto:*\n║ › ${secInfo}\n╚══════════════════════════╝`, mentions: target ? [target] : [] });
                 }, 3000);
                 return;
             }
@@ -590,7 +609,8 @@ async function iniciarBot() {
 
             if (comando === "piropo") {
                 const piropos = ["Si la belleza fuera delito, yo te daría cadena perpetua. 😘", "¿Crees en el amor a primera vista o vuelvo a pasar? 😉", "No soy donante de órganos, pero te doy mi corazón. ❤️", "Quien fuera sol para darte todo el día. ☀️", "Me gustas más que dormir hasta tarde. 😴", "Estás como para invitarte a comer taquitos. 🌮"];
-                return responder(`${pre}\n║ 😏 ${piropos[Math.floor(Math.random() * piropos.length)]}\n${pie}`);
+                const random = piropos[Math.floor(Math.random() * piropos.length)];
+                return responder(`${pre}\n║ 😏 ${random}\n${pie}`);
             }
 
             // ==========================================
@@ -615,6 +635,7 @@ async function iniciarBot() {
 ║  ├ .cerrar [5m] / .abrir [1h]
 ║  ├ .n [texto] - Anuncio
 ║  ├ .kick [@user]
+║  ├ .promover / .degradar
 ║  ├ .link / .tagall
 ║  ├ .activar - Iniciar Bot
 ║  ├ .activar bienvenida
