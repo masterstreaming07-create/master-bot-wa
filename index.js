@@ -2,7 +2,6 @@ const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, jidNorma
 const pino = require("pino");
 const express = require("express");
 const QRCode = require("qrcode");
-const fs = require("fs");
 
 // ==========================================
 // 1. CONFIGURACIÓN Y SERVIDOR WEB
@@ -10,24 +9,48 @@ const fs = require("fs");
 const app = express();
 const PORT = process.env.PORT || 3000;
 const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwsfiLlP7ot1DSHiyLfBdXEMI_6sbt9fD0MXxynwGqPG-HDZPpTLiWffxzrFFLP5Nrl/exec";
-const DB_PATH = "./auth_session/database.json";
 
-// BLINDAJE DE SEGURIDAD: Tu número oficial
+// ☁️ CAJA FUERTE EN LA NUBE (FIREBASE)
+const FIREBASE_URL = "https://masterbot-cd954-default-rtdb.firebaseio.com/database.json";
+
+// 🛡️ BLINDAJE DE SEGURIDAD: Tu número oficial
 const NUMERO_CREADOR = "5218716926709@s.whatsapp.net";
 
-let db = { comandos: {}, pausado: false };
-if (fs.existsSync(DB_PATH)) db = JSON.parse(fs.readFileSync(DB_PATH));
+let db = { comandos: {}, gruposOTP: {}, mapaGrupos: {}, pausado: false };
 
-function guardarDB() {
-    if (!fs.existsSync('./auth_session')) fs.mkdirSync('./auth_session');
-    fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2));
+async function cargarDB() {
+    try {
+        const res = await fetch(FIREBASE_URL);
+        const data = await res.json();
+        if (data) {
+            db.comandos = data.comandos || {};
+            db.gruposOTP = data.gruposOTP || {};
+            db.mapaGrupos = data.mapaGrupos || {};
+            for (let key in data) {
+                if (key !== 'comandos' && key !== 'gruposOTP' && key !== 'mapaGrupos' && key !== 'pausado') {
+                    db[key] = data[key];
+                }
+            }
+        }
+        console.log("✅ Base de datos sincronizada con Firebase.");
+    } catch (e) { console.log("⚠️ Error conectando a Firebase. Se usará DB temporal."); }
+}
+
+async function guardarDB() {
+    try {
+        await fetch(FIREBASE_URL, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(db)
+        });
+    } catch (e) { console.log("⚠️ Error guardando en Firebase."); }
 }
 
 let qrActual = null;
 let botConectado = false;
 
 app.get("/", async (req, res) => {
-    if (botConectado) return res.send(`<h1 style="color: #00ff00; background: #000; text-align: center; padding: 50px; font-family: monospace;">✅ MASTER SYSTEM PRO [ONLINE]</h1>`);
+    if (botConectado) return res.send(`<h1 style="color: #00ff00; background: #000; text-align: center; padding: 50px; font-family: monospace;">✅ MASTER SYSTEM PRO [ONLINE]</h1><p style="color:white; text-align:center;">Conectado a Firebase Realtime Database ☁️</p>`);
     if (qrActual) {
         try {
             const qrImage = await QRCode.toDataURL(qrActual);
@@ -59,6 +82,7 @@ const pie = "\n╰────────────────────�
 // 3. NÚCLEO Y PROCESADOR DE COMANDOS
 // ==========================================
 async function iniciarBot() {
+    await cargarDB();
     const { state, saveCreds } = await useMultiFileAuthState("auth_session");
     const sock = makeWASocket({ auth: state, logger: pino({ level: "silent" }), printQRInTerminal: true });
 
@@ -95,7 +119,6 @@ async function iniciarBot() {
 
             const responder = async (texto) => await sock.sendMessage(chat, { text: texto }, { quoted: m });
             
-            // Verificación de Remitente y Permisos
             const senderId = m.key.participant || chat;
             const isCreator = senderId === NUMERO_CREADOR;
 
@@ -112,36 +135,95 @@ async function iniciarBot() {
             if (db.pausado) return;
 
             // ==========================================
-            // CAPA 1: COMANDOS FUNCIONALES Y SEGURIDAD (Intocables)
+            // CAPA VIP: PANEL SECRETO DEL CREADOR
             // ==========================================
-            
+            if (comando === "listagrupos" && isCreator) {
+                const grupos = await sock.groupFetchAllParticipating();
+                let txt = `╭─── 👑 *PANEL DE CONTROL* ───╮\n│\n`;
+                let i = 1;
+                db.mapaGrupos = {}; 
+                for (const jid in grupos) {
+                    const botActivo = db[jid] ? "✅ ACTIVO" : "❌ INACTIVO";
+                    const pinActivo = db.gruposOTP[jid] ? "✅ ACTIVO" : "❌ INACTIVO";
+                    txt += `│ *${i}.* ${grupos[jid].subject}\n│ ├ 🤖 Bot: ${botActivo}\n│ └ 🔑 PIN: ${pinActivo}\n│\n`;
+                    db.mapaGrupos[i] = jid;
+                    i++;
+                }
+                txt += `╰───────────────────────╯\n_Usa .activarbot [num] / .desactivarbot [num]_\n_Usa .activarpin [num] / .desactivarpin [num]_`;
+                guardarDB();
+                return responder(txt);
+            }
+
+            // CONTROLES REMOTOS DEL BOT (RENTA BÁSICA)
+            if (comando === "activarbot" && isCreator) {
+                const num = args[0];
+                const jid = db.mapaGrupos?.[num];
+                if (!jid) return responder(`${pre} ⚠️ Número de grupo inválido.${pie}`);
+                if (!db[jid]) db[jid] = { comandos: {} };
+                guardarDB();
+                await sock.sendMessage(jid, { text: `${pre} ✅ *SISTEMA ACTIVADO*${sep} El proveedor ha habilitado el bot de forma remota en este grupo.\n│ La base de datos está lista.${pie}` });
+                return responder(`${pre} ✅ *BOT ACTIVADO REMOTAMENTE*${sep} Grupo ${num} en línea.${pie}`);
+            }
+
+            if (comando === "desactivarbot" && isCreator) {
+                const num = args[0];
+                const jid = db.mapaGrupos?.[num];
+                if (!jid) return responder(`${pre} ⚠️ Número de grupo inválido.${pie}`);
+                if (db[jid]) delete db[jid];
+                guardarDB();
+                await sock.sendMessage(jid, { text: `${pre} ⛔ *SISTEMA SUSPENDIDO*${sep} El proveedor ha desactivado el servicio para este grupo.${pie}` });
+                return responder(`${pre} ⛔ *BOT DESACTIVADO*${sep} Grupo ${num} suspendido.${pie}`);
+            }
+
+            // CONTROLES REMOTOS DEL PIN (SUSCRIPCIÓN EXTRA)
+            if (comando === "activarpin" && isCreator) {
+                const num = args[0];
+                const jid = db.mapaGrupos?.[num];
+                if (!jid) return responder(`${pre} ⚠️ Número de grupo inválido.${pie}`);
+                db.gruposOTP[jid] = true;
+                guardarDB();
+                return responder(`${pre} ✅ *OTP DESBLOQUEADO*${sep} Grupo ${num} ahora tiene acceso a pines.${pie}`);
+            }
+
+            if (comando === "desactivarpin" && isCreator) {
+                const num = args[0];
+                const jid = db.mapaGrupos?.[num];
+                if (!jid) return responder(`${pre} ⚠️ Número de grupo inválido.${pie}`);
+                db.gruposOTP[jid] = false;
+                guardarDB();
+                return responder(`${pre} ⛔ *OTP BLOQUEADO*${sep} Permisos revocados al grupo ${num}.${pie}`);
+            }
+
+            // ==========================================
+            // CAPA 1: COMANDOS FUNCIONALES Y SEGURIDAD
+            // ==========================================
             if (comando === "admin") {
-                return responder(`${pre} ⚙️ *MODERACIÓN VIP*${sep} • *.n [texto]* › Anuncio a TODOS (Invisible)\n│ • *.kick [@user]* › Expulsar\n│ • *.promover / .degradar*\n│ • *.cerrar / .abrir* › Chat\n│ • *.link* › Enlace del grupo\n│ • *.tagall* › Mención visible${pie}`);
+                return responder(`${pre} ⚙️ *MODERACIÓN VIP*${sep} • *.n [texto]* › Anuncio Invisible a Todos\n│ • *.kick [@user]* › Expulsar\n│ • *.promover / .degradar*\n│ • *.cerrar / .abrir* › Chat\n│ • *.link* › Enlace del grupo\n│ • *.tagall* › Mención visible${pie}`);
             }
             
             if (comando === "renta") {
-                return responder(`${pre} 💼 *PERSONALIZACIÓN Y RENTA*${sep} • *.activar* › Iniciar DB privada del grupo\n│ • *.set [comando] [texto]* › Crear respuesta\n│ • *.del [comando]* › Borrar respuesta\n│\n│ _Ejemplo: .set ventas Nuevas Cuentas!_${pie}`);
+                return responder(`${pre} 💼 *PERSONALIZACIÓN Y RENTA*${sep} • *.activar* › Activar DB en el grupo actual\n│ • *.set [comando] [texto]* › Crear respuesta\n│ • *.del [comando]* › Borrar respuesta\n│\n│ _Ejemplo: .set ventas Nuevas Cuentas!_${pie}`);
             }
 
-            // COMANDOS DE RENTA Y DB
+            // ACTIVACIÓN LOCAL
             if (comando === "activar") {
                 if (!esGrupo || !esAdmin) return responder(`${pre} ⛔ *ACCESO DENEGADO*${sep} Solo administradores del grupo pueden activar el bot.${pie}`);
                 if (!db[chat]) db[chat] = { comandos: {} };
                 guardarDB();
-                return responder(`${pre} ✅ *SISTEMA ACTIVADO*${sep} Bot vinculado exitosamente a este grupo.\n│ Todos los datos guardados aquí serán privados y exclusivos.${pie}`);
+                return responder(`${pre} ✅ *SISTEMA ACTIVADO*${sep} Bot vinculado exitosamente a este grupo.\n│ Todos los datos guardados aquí serán privados y almacenados en la Nube de Google.${pie}`);
             }
 
             if (comando === "set" && esAdmin) {
                 const nCmd = args.shift()?.toLowerCase();
                 if (!nCmd || !args.length) return responder(`${pre} ⚠ Uso: .set [nombre] [texto]${pie}`);
-                if (esGrupo && !db[chat]) return responder(`${pre} ⛔ *SISTEMA INACTIVO*${sep} Debes escribir \`.activar\` para iniciar tu base de datos privada.${pie}`);
+                if (esGrupo && !db[chat]) return responder(`${pre} ⛔ *SISTEMA INACTIVO*${sep} El proveedor debe habilitar el bot, o usa \`.activar\`.${pie}`);
                 
                 const textoGuardar = args.join(" ");
                 if (esGrupo) db[chat].comandos[nCmd] = textoGuardar; 
                 else db.comandos[nCmd] = textoGuardar; 
                 
                 guardarDB();
-                return responder(`${pre} ✅ *GUARDADO EXITOSO*${sep} Comando \`.${nCmd}\` actualizado.${pie}`);
+                return responder(`${pre} ✅ *GUARDADO EN LA NUBE*${sep} Comando \`.${nCmd}\` actualizado y protegido.${pie}`);
             }
 
             if (comando === "del" && esAdmin) {
@@ -158,31 +240,17 @@ async function iniciarBot() {
                 return responder(`${pre} ⚠️ El comando no existe.${pie}`);
             }
 
-            // CÓDIGOS Y GOOGLE
-            if (comando === "codigo") {
-                const correo = args[0] ? args[0].trim().toLowerCase() : "";
-                const perfil = args[1] ? args[1].trim().toUpperCase() : "COMPLETA";
-                if (!correo.includes("@")) return responder(`${pre} ⚠ *ERROR DE FORMATO*${sep} Uso: .codigo usuario@correo.com${pie}`);
-                
-                await responder(`${pre} ⏳ Consultando base de datos...${pie}`);
-                try {
-                    const res = await fetch(`${APPS_SCRIPT_URL}?correo=${encodeURIComponent(correo)}&perfil=${encodeURIComponent(perfil)}`);
-                    const data = await res.json();
-                    if (data?.ok) {
-                        const f = `╭─── 📋 *FICHA DE ATENCIÓN* ───╮\n│\n│ 🎬 *Servicio:* ${data.plataforma}\n│ 📧 *Cuenta:* ${data.correo}\n│ 👤 *Perfil:* ${data.perfil}\n│ 📅 *Vence:* ${data.vence}\n│\n├───────────────────────\n│ 📸 *FOTO REQUERIDA*\n│ _Por favor, envía la captura._\n╰───────────────────────╯`;
-                        await sock.sendMessage(chat, { text: f }, { quoted: m });
-                    } else { responder(`${pre} ❌ *NO ENCONTRADO*${sep} ${data.error || "No existe."}${pie}`); }
-                } catch (e) { responder(`${pre} ⚠️ Error de servidor.${pie}`); }
-                return;
-            }
-
+            // MÓDULO 4: EXTRACCIÓN OTP PROTEGIDA
             if (comando === "pin" || comando === "extraer") {
+                if (!esGrupo || !esAdmin) return responder(`${pre} ⛔ *ACCESO DENEGADO*${sep} Solo los administradores pueden extraer códigos OTP.${pie}`);
+                if (!db.gruposOTP[chat] && !isCreator) return responder(`${pre} ⛔ *ACCESO RESTRINGIDO*${sep} Este grupo no tiene contratado el servicio de extracción OTP.\n│ Contacta al proveedor para activar tu PIN.${pie}`);
+
                 const plat = args[0]?.trim().toLowerCase();
                 const corr = args[1]?.trim().toLowerCase();
                 const sub = args[2] ? args[2].trim().toLowerCase() : "4dig";
                 if (!plat || !corr?.includes("@")) return responder(`${pre} ⚠ *FORMATO*${sep} Uso: .pin [plat] [correo]${pie}`);
 
-                await responder(`${pre} ⏳ *${plat.toUpperCase()}* | Extrayendo en vivo...${pie}`);
+                await responder(`${pre} ⏳ *${plat.toUpperCase()}* | Extrayendo de la red...${pie}`);
                 try {
                     const res = await fetch(`${APPS_SCRIPT_URL}?accion=extraer&plataforma=${encodeURIComponent(plat)}&correo=${encodeURIComponent(corr)}&subtipo=${encodeURIComponent(sub)}`);
                     const data = await res.json();
@@ -191,16 +259,12 @@ async function iniciarBot() {
                         if (data.link) ok += `│ 🔗 *Hogar:* ${data.link}\n`;
                         ok += `│\n╰───────────────────────╯`;
                         await sock.sendMessage(chat, { text: ok }, { quoted: m });
-                    } else { responder(`${pre} ❌ *ERROR*${sep} ${data.error || "Código caducado."}${pie}`); }
-                } catch (e) { responder(`${pre} ⚠️ Error de servidor.${pie}`); }
+                    } else { responder(`${pre} ❌ *ERROR*${sep} ${data.error || "Código caducado o no encontrado."}${pie}`); }
+                } catch (e) { responder(`${pre} ⚠️ Error conectando al servidor OTP.${pie}`); }
                 return;
             }
 
-            if (comando === "pedircodigo" || comando === "ficha") {
-                return responder(`╭─── 📋 *SOLICITUD MANUAL* ───╮\n│\n│ • *Plataforma:* \n│ • *Correo:* \n│ • *Perfil:* \n│ • *Foto:* (Adjuntar)\n│\n╰───────────────────────╯`);
-            }
-
-            // MODERACIÓN (N, KICK, ETC)
+            // MODERACIÓN (.N y KICK)
             if (comando === "cerrar" || comando === "abrir") {
                 if (!esGrupo || !esAdmin) return;
                 const esCerrar = comando === "cerrar";
@@ -246,10 +310,7 @@ async function iniciarBot() {
                     } else {
                         await sock.sendMessage(chat, { text: finalTxt, mentions: menciones });
                     }
-                } catch (e) {
-                    console.error("Error multimedia:", e);
-                    await sock.sendMessage(chat, { text: finalTxt, mentions: menciones }); 
-                }
+                } catch (e) { await sock.sendMessage(chat, { text: finalTxt, mentions: menciones }); }
                 return;
             }
 
@@ -302,12 +363,33 @@ async function iniciarBot() {
                 return;
             }
 
-            if (comando === "ping") {
-                const latencia = Date.now() - (m.messageTimestamp * 1000);
-                return responder(`╭─── 🏓 *LATENCIA* ───╮\n│\n│ 🚀 Velocidad de red:\n│ ~${latencia}ms\n│\n╰───────────────────╯`);
+            // JUEGOS DINÁMICOS Y ANIMADOS
+            if (comando === "carrera") {
+                const msg = await sock.sendMessage(chat, { text: `${pre} 🏁 *CARRERA DE AUTOS* 🏁${sep} Preparando pista...${pie}` }, { quoted: m });
+                const frames = [
+                    `${pre} 🏁 *CARRERA EN CURSO* 🏁${sep} \n│ 🚗💨          🏎️💨\n│\n│ _¡Arrancan!_${pie}`,
+                    `${pre} 🏁 *CARRERA EN CURSO* 🏁${sep} \n│    🚗💨      🏎️💨\n│\n│ _¡Curva peligrosa!_${pie}`,
+                    `${pre} 🏁 *CARRERA EN CURSO* 🏁${sep} \n│       🚗💨  🏎️💨\n│\n│ _¡Están parejos!_${pie}`,
+                    `${pre} 🏁 *FINAL DE FOTOGRAFÍA* 🏁${sep} \n│             🚗💨🏎️💨\n│\n│ 🏆 ¡GANA EL AUTO ROJO! 🏆${pie}`
+                ];
+                for (let i = 0; i < frames.length; i++) {
+                    await new Promise(r => setTimeout(r, 1200));
+                    await sock.sendMessage(chat, { edit: msg.key, text: frames[i] });
+                }
+                return;
             }
 
-            // JUEGOS
+            if (comando === "bomba") {
+                const msg = await sock.sendMessage(chat, { text: `${pre} 💣 *BOMBA ACTIVADA* 💣${sep} Destrucción inminente en:\n│ ⏳ 3...${pie}` }, { quoted: m });
+                await new Promise(r => setTimeout(r, 1200));
+                await sock.sendMessage(chat, { edit: msg.key, text: `${pre} 💣 *BOMBA ACTIVADA* 💣${sep} Destrucción inminente en:\n│ ⏳ 2...${pie}` });
+                await new Promise(r => setTimeout(r, 1200));
+                await sock.sendMessage(chat, { edit: msg.key, text: `${pre} 💣 *BOMBA ACTIVADA* 💣${sep} Destrucción inminente en:\n│ ⏳ 1...${pie}` });
+                await new Promise(r => setTimeout(r, 1200));
+                await sock.sendMessage(chat, { edit: msg.key, text: `💥💥💥 *¡KABOOM!* 💥💥💥\n\n_El chat ha quedado en ruinas._` });
+                return;
+            }
+
             if (comando === "casino" || comando === "slots") {
                 const msg = await sock.sendMessage(chat, { text: `${pre} 🎰 *CASINO MASTER*${sep} Girando rodillos...\n│ [ 🌀 | 🌀 | 🌀 ]${pie}` }, { quoted: m });
                 const emojis = ["🍒", "🔔", "💎", "🍋", "🍉"];
@@ -333,7 +415,7 @@ async function iniciarBot() {
             if (comando === "ruleta") {
                 if (!esGrupo) return;
                 if (esAdmin) return responder(`${pre} 🛡️ Los Administradores no juegan a la ruleta.${pie}`);
-                const msg = await sock.sendMessage(chat, { text: `${pre} 🔫 *RULETA RUSA*${sep} Girando el tambor... ⚙️️${pie}` }, { quoted: m });
+                const msg = await sock.sendMessage(chat, { text: `${pre} 🔫 *RULETA RUSA*${sep} Girando el tambor... ⚙${pie}` }, { quoted: m });
                 setTimeout(async () => {
                     if (Math.floor(Math.random() * 6) + 1 === 1) {
                         await sock.sendMessage(chat, { edit: msg.key, text: `${pre} 🔫 *RULETA RUSA*${sep} ¡PUM! 💥 Perdiste. Adiós.${pie}` });
@@ -353,11 +435,24 @@ async function iniciarBot() {
             if (comando === "doxeo" || comando === "doxxear") {
                 let target = m.message.extendedTextMessage?.contextInfo?.participant || (m.message.extendedTextMessage?.contextInfo?.mentionedJid ? m.message.extendedTextMessage.contextInfo.mentionedJid[0] : null);
                 let tag = target ? `@${target.split("@")[0]}` : "este usuario";
+                
+                // Generador Dinámico
+                const isps = ["Telmex (Debe 2 meses)", "Totalplay (Amenaza con cancelar)", "Megacable (Robándose el WiFi del vecino)", "Izzi (Con cortes cada 5 min)", "Starlink (Es prestado)"];
+                const locs = ["Ecatepec, Edomex", "San Pedro Garza García, NL", "Tepito, CDMX", "Zapopan, Jalisco", "Culiacán, Sinaloa", "Oculto en una cueva"];
+                const devices = ["Alcatel con pantalla rota", "iPhone 15 Pro Max (En abonos de Coppel)", "Samsung Galaxy J7", "Xiaomi (A punto de explotar)", "Motorola (Se traba al abrir WhatsApp)"];
+                const secrets = ["Buscó: 'cómo volver con mi ex' a las 3 AM.", "Debe $500 pesos en la tienda de la esquina.", "Aún escucha a Bad Bunny a escondidas.", "Tiene fotos vergonzosas en la papelera."];
+                
                 const ip = `${Math.floor(Math.random()*255)}.${Math.floor(Math.random()*255)}.${Math.floor(Math.random()*255)}.${Math.floor(Math.random()*255)}`;
-                const call = await sock.sendMessage(chat, { text: `${pre} ☠️ *INICIANDO DOXEO* ☠️${sep} 🔎 Rastreando la IP de ${tag}...${pie}`, mentions: target ? [target] : [] });
+                const call = await sock.sendMessage(chat, { text: `${pre} ☠️ *INICIANDO DOXEO* ☠️${sep} 🔎 Rastreando la IP de ${tag} y desencriptando paquetes de red...${pie}`, mentions: target ? [target] : [] });
+                
                 setTimeout(async () => {
-                    await sock.sendMessage(chat, { edit: call.key, text: `${pre} ☠️ *DOXEO COMPLETADO* ☠️${sep} 👤 *Objetivo:* ${tag}\n📡 *IP:* ${ip}\n📍 *Ubicación:* Ecatepec, Estado de México\n🌐 *Compañía:* Totalplay (Debe 2 meses)\n📱 *Dispositivo:* Android con pantalla rota\n💳 *Tarjeta:* 4152 31** **** 9821\n\n_Tus datos han sido subidos a la Dark Web._${pie}`, mentions: target ? [target] : [] });
-                }, 2500);
+                    const ispInfo = isps[Math.floor(Math.random() * isps.length)];
+                    const locInfo = locs[Math.floor(Math.random() * locs.length)];
+                    const devInfo = devices[Math.floor(Math.random() * devices.length)];
+                    const secInfo = secrets[Math.floor(Math.random() * secrets.length)];
+                    
+                    await sock.sendMessage(chat, { edit: call.key, text: `${pre} ☠️ *DOXEO COMPLETADO* ☠️${sep} 👤 *Objetivo:* ${tag}\n📡 *IP:* ${ip}\n📍 *Ubicación:* ${locInfo}\n🌐 *Compañía:* ${ispInfo}\n📱 *Dispositivo:* ${devInfo}\n💳 *Tarjeta:* 4152 31** **** ${Math.floor(Math.random() * 9000) + 1000}\n\n🕵️‍♂️ *Secreto expuesto:*\n_› ${secInfo}_\n\n_Tus datos han sido subidos a la Dark Web._${pie}`, mentions: target ? [target] : [] });
+                }, 3000);
                 return;
             }
 
@@ -366,7 +461,7 @@ async function iniciarBot() {
                 let tag = target ? `@${target.split("@")[0]}` : "este usuario";
                 const nivel = Math.floor(Math.random() * 101);
                 let titulo = comando.toUpperCase();
-                let diag = nivel > 80 ? "🔥 ¡Báñate con agua fría, enfermo!" : nivel > 40 ? "😏 Andas en el punto exacto." : "🧊 Eres un tempano de hielo.";
+                let diag = nivel > 80 ? "🔥 ¡Báñate con agua fría, enfermo!" : nivel > 40 ? "😏 Andas en el punto exacto." : "🧊 Eres un témpano de hielo.";
                 return await sock.sendMessage(chat, { text: `${pre} 🌡️ *TEST DE ${titulo}* 🌡${sep} Analizando a ${tag}...\n\n📊 *Nivel detectado:* ${nivel}%\n🩺 *Diagnóstico:* ${diag}${pie}`, mentions: target ? [target] : [] });
             }
 
@@ -376,7 +471,7 @@ async function iniciarBot() {
                 const miembrosReales = miembros.filter(id => id !== sock.user.id.split(":")[0]+"@s.whatsapp.net");
                 const user1 = miembrosReales[Math.floor(Math.random() * miembrosReales.length)];
                 const user2 = miembrosReales[Math.floor(Math.random() * miembrosReales.length)];
-                return await sock.sendMessage(chat, { text: `${pre} 💘 *NUEVA PAREJA DETECTADA* 💘${sep} El sistema ha detectado tensión sexual entre:\n\n👉 @${user1.split("@")[0]}\n👉 @${user2.split("@")[0]}\n\n¡Ya bésense y dejen el drama! 👩‍❤️‍💋‍👨${pie}`, mentions: [user1, user2] });
+                return await sock.sendMessage(chat, { text: `${pre} 💘 *NUEVA PAREJA DETECTADA* 💘${sep} El sistema ha detectado tensión sexual entre:\n\n👉 @${user1.split("@")[0]}\n👉 @${user2.split("@")[0]}\n\n¡Ya bésense y dejen el drama! 👩‍❤️‍‍💋‍👨${pie}`, mentions: [user1, user2] });
             }
 
             if (comando === "piropo") {
@@ -393,16 +488,13 @@ async function iniciarBot() {
             else if (db.comandos[comando]) respuestaComando = db.comandos[comando]; 
 
             if (respuestaComando) {
-                // Si el comando creado ya tiene diseño propio (tiene bordes), lo manda crudo
                 if (respuestaComando.includes("╭───")) return responder(respuestaComando);
-                // Si es texto normal, lo encierra en el cuadro bonito
                 return responder(`╭─── 💡 *INFORMACIÓN* ───╮\n│\n│ ${respuestaComando}\n│\n╰───────────────────╯`);
             }
 
             // ==========================================
             // CAPA 3: MENÚS DE FÁBRICA (Respaldo visual)
             // ==========================================
-            
             if (comando === "menu" || comando === "help") {
                 const menuTxt = `╭─── 👑 *MASTER SYSTEM* ───╮\n` +
                                 `│\n` +
@@ -412,7 +504,7 @@ async function iniciarBot() {
                                 `├────── 🗂️ DIRECTORIO ──────\n` +
                                 `│\n` +
                                 `│ 🛒 *.ventas*  › Cuentas disponibles\n` +
-                                `│ 🔐 *.codigos* › Extracción OTP y Pines\n` +
+                                `│ 🔐 *.codigos* › Extracción OTP\n` +
                                 `│ ⚙ *.admin*   › Gestión de Grupo\n` +
                                 `│ 🎮 *.juegos*  › Entretenimiento\n` +
                                 `│ 💼 *.renta*   › Sistema de Clientes\n` +
@@ -437,11 +529,11 @@ async function iniciarBot() {
             }
 
             if (comando === "codigos") {
-                return responder(`${pre} 🔐 *SISTEMA DE CÓDIGOS*${sep} • *.codigo [correo] [perfil]*\n│ Revisa la ficha de la cuenta.\n│\n│ • *.pin [plat] [correo]*\n│ Extrae el código OTP en vivo.\n│\n│ • *.pedircodigo*\n│ Formato para solicitar código.${pie}`);
+                return responder(`${pre} 🔐 *SISTEMA DE CÓDIGOS*${sep} • *.pin [plat] [correo]*\n│ Extrae el código OTP en vivo.\n│\n│ _*Nota:* Tu grupo debe tener contratado el servicio OTP para usar este comando._${pie}`);
             }
 
             if (comando === "juegos") {
-                return responder(`${pre} 🎮 *ENTRETENIMIENTO*${sep} • *.casino* › Tragamonedas 🎰\n│ • *.dado* › Lanza los dados 🎲\n│ • *.suerte* › Medidor de suerte 🍀\n│ • *.ruleta* › Ruleta Rusa 🔫\n│ • *.doxeo [@user]* › Hackeo Falso 💻\n│ • *.calentura / .pajero* › Test 🌡\n│ • *.ship / .parejas* › Cupido 💘\n│ • *.piropo* › Frases de amor 😘${pie}`);
+                return responder(`${pre} 🎮 *ENTRETENIMIENTO*${sep} • *.carrera* › Autos en vivo 🏁\n│ • *.bomba* › Explota el chat 💣\n│ • *.casino* › Tragamonedas 🎰\n│ • *.dado* › Lanza los dados 🎲\n│ • *.suerte* › Medidor de suerte 🍀\n│ • *.ruleta* › Ruleta Rusa 🔫\n│ • *.doxeo [@user]* › Hackeo 💻\n│ • *.calentura / .pajero* › Test 🌡\n│ • *.ship / .parejas* › Cupido 💘\n│ • *.piropo* › Frases de amor 😘${pie}`);
             }
 
         } catch (error) { console.error("Error procesando mensaje:", error); }
