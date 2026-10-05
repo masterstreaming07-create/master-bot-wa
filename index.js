@@ -14,9 +14,9 @@ const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwsfiLlP7ot1DSH
 // ☁️ CAJA FUERTE EN LA NUBE
 const FIREBASE_URL = "https://masterbot-cd954-default-rtdb.firebaseio.com/database.json";
 
-let db = { comandos: {}, gruposOTP: {}, mapaGrupos: {}, licencias: {}, pinUsers: {}, creador: "", pausado: false };
+let db = { comandos: {}, gruposOTP: {}, mapaGrupos: {}, licencias: {}, pinUsers: {}, creador: "", bienvenida: {}, despedida: {}, pausado: false };
 
-// CONEXIÓN A FIREBASE BLINDADA (No pierde datos al reiniciar)
+// CONEXIÓN A FIREBASE BLINDADA
 async function cargarDB() {
     return new Promise((resolve) => {
         https.get(FIREBASE_URL, (res) => {
@@ -32,7 +32,9 @@ async function cargarDB() {
                         db.licencias = data.licencias || {};
                         db.pinUsers = data.pinUsers || {}; 
                         db.creador = data.creador || ""; 
-                        for (let key in data) if (!['comandos', 'gruposOTP', 'mapaGrupos', 'licencias', 'pinUsers', 'creador', 'pausado'].includes(key)) db[key] = data[key];
+                        db.bienvenida = data.bienvenida || {};
+                        db.despedida = data.despedida || {};
+                        for (let key in data) if (!['comandos', 'gruposOTP', 'mapaGrupos', 'licencias', 'pinUsers', 'creador', 'bienvenida', 'despedida', 'pausado'].includes(key)) db[key] = data[key];
                     }
                     console.log("✅ Base de datos cargada desde la nube.");
                     resolve();
@@ -106,6 +108,45 @@ async function iniciarBot() {
         else if (connection === "open") { botConectado = true; qrActual = null; }
     });
 
+    // ==========================================
+    // SISTEMA DE BIENVENIDA Y DESPEDIDA
+    // ==========================================
+    sock.ev.on("group-participants.update", async (anu) => {
+        try {
+            const jid = anu.id;
+            const participants = anu.participants;
+            
+            for (let num of participants) {
+                // Obtener Foto de perfil (o la del bot si la tienen oculta)
+                let pfp;
+                try { pfp = await sock.profilePictureUrl(num, 'image'); } 
+                catch { 
+                    try { pfp = await sock.profilePictureUrl(jidNormalizedUser(sock.user.id), 'image'); } 
+                    catch { pfp = "https://i.imgur.com/OFOwV0Y.jpeg"; }
+                }
+
+                if (anu.action === 'add' && db.bienvenida && db.bienvenida[jid]) {
+                    const groupMeta = await sock.groupMetadata(jid);
+                    const text = `╔══════════════════════════╗\n║ 🎉 *¡NUEVO MIEMBRO!*\n╠══════════════════════════╣\n║ Bienvenido(a) @${num.split("@")[0]}\n║ al grupo: *${groupMeta.subject}*\n║\n║ Esperamos que disfrutes\n║ tu estancia. Escribe .menu\n╚══════════════════════════╝`;
+                    await sock.sendMessage(jid, { image: { url: pfp }, caption: text, mentions: [num] });
+                } 
+                else if (anu.action === 'remove' && db.despedida && db.despedida[jid]) {
+                    const despedidas = [
+                        "Se nos fue un soldado... 🪖",
+                        "¡Hasta la vista, baby! 🕶️",
+                        "Un usuario menos que alimentar. 🍽️",
+                        "Esperemos que vuelva con pan. 🍞",
+                        "Fue eliminado o huyó, nunca lo sabremos. 🕵️‍♂️",
+                        "El grupo le quedó grande. 🚀"
+                    ];
+                    const randomDespedida = despedidas[Math.floor(Math.random() * despedidas.length)];
+                    const text = `╔══════════════════════════╗\n║ 👋 *¡SE FUE!*\n╠══════════════════════════╣\n║ Adiós @${num.split("@")[0]}\n║\n║ ${randomDespedida}\n╚══════════════════════════╝`;
+                    await sock.sendMessage(jid, { image: { url: pfp }, caption: text, mentions: [num] });
+                }
+            }
+        } catch (err) { console.error("Error en evento de grupo:", err); }
+    });
+
     sock.ev.on("messages.upsert", async (chatUpdate) => {
         try {
             if (!chatUpdate.messages) return;
@@ -169,12 +210,12 @@ async function iniciarBot() {
                     let vencimiento = "Sin licencia";
                     if (db.licencias[jid]) {
                         const date = new Date(db.licencias[jid]);
-                        vencimiento = Date.now() > db.licencias[jid] ? "⚠️️ VENCIDA" : date.toLocaleDateString('es-MX');
+                        vencimiento = Date.now() > db.licencias[jid] ? "⚠ VENCIDA" : date.toLocaleDateString('es-MX');
                     }
                     txt += `║ *${i}.* ${grupos[jid].subject}\n║  ├ 🔑 PIN: ${pinActivo}\n║  └ 📅 Vence: ${vencimiento}\n║\n`;
                     db.mapaGrupos[i] = jid; i++;
                 }
-                txt += `╚══════════════════════════╝\n_Usa .licencia [días] [num]_\n_Usa .activarpin [num]_`;
+                txt += `╚══════════════════════════╝`;
                 await guardarDB();
                 return responder(txt);
             }
@@ -206,18 +247,13 @@ async function iniciarBot() {
                 return responder(`${pre}\n║ ⛔ *OTP BLOQUEADO*\n║ Permiso revocado al grupo ${num}.\n${pie}`);
             }
 
-            // ==========================================
-            // GESTIÓN DE OPERADORES PIN (EL CANDADO ESTRICTO)
-            // ==========================================
+            // GESTIÓN DE OPERADORES PIN
             if (comando === "addpin" && isCreator) {
                 if (!esGrupo) return responder(`${pre}\n║ ⚠️ Usa esto dentro del grupo.\n${pie}`);
                 let target = m.message.extendedTextMessage?.contextInfo?.participant || (m.message.extendedTextMessage?.contextInfo?.mentionedJid ? m.message.extendedTextMessage.contextInfo.mentionedJid[0] : null);
                 if (!target) return responder(`${pre}\n║ ⚠️ Etiqueta a la persona.\n║ Ej: .addpin @Cliente\n${pie}`);
-                
-                if (!db.pinUsers) db.pinUsers = {};
-                if (!db.pinUsers[chat]) db.pinUsers[chat] = [];
+                if (!db.pinUsers) db.pinUsers = {}; if (!db.pinUsers[chat]) db.pinUsers[chat] = [];
                 if (!db.pinUsers[chat].includes(target)) db.pinUsers[chat].push(target);
-                
                 await guardarDB();
                 return responder(`╔══════════════════════════╗\n║ 🔑 *OPERADOR REGISTRADO*\n╠══════════════════════════╣\n║ @${target.split("@")[0]} ahora tiene\n║ licencia para usar el .pin\n╚══════════════════════════╝`, { mentions: [target] });
             }
@@ -226,7 +262,6 @@ async function iniciarBot() {
                 if (!esGrupo) return;
                 let target = m.message.extendedTextMessage?.contextInfo?.participant || (m.message.extendedTextMessage?.contextInfo?.mentionedJid ? m.message.extendedTextMessage.contextInfo.mentionedJid[0] : null);
                 if (!target) return;
-                
                 if (db.pinUsers && db.pinUsers[chat]) {
                     db.pinUsers[chat] = db.pinUsers[chat].filter(id => id !== target);
                     await guardarDB();
@@ -239,14 +274,8 @@ async function iniciarBot() {
             // ==========================================
             if (comando === "pin" || comando === "extraer") {
                 if (!esGrupo) return responder(`${pre}\n║ ⛔ Solo funciona en grupos.\n${pie}`);
-                
-                // VERIFICAR SI TIENE LICENCIA DE OPERADOR O ES EL CREADOR
                 const autorizado = isCreator || (db.pinUsers && db.pinUsers[chat] && db.pinUsers[chat].includes(senderId));
-                
-                if (!autorizado) {
-                    return responder(`╔══════════════════════════╗\n║ ⛔ *ACCESO DENEGADO*\n╠══════════════════════════╣\n║ Solo el Creador y los\n║ Operadores autorizados\n║ pueden extraer códigos.\n╚══════════════════════════╝`);
-                }
-
+                if (!autorizado) return responder(`╔══════════════════════════╗\n║ ⛔ *ACCESO DENEGADO*\n╠══════════════════════════╣\n║ Solo el Creador y los\n║ Operadores autorizados\n║ pueden extraer códigos.\n╚══════════════════════════╝`);
                 if (!db.gruposOTP[chat] && !isCreator) return responder(`${pre}\n║ ⛔ *SERVICIO RESTRINGIDO*\n║ Tu grupo no tiene plan OTP.\n${pie}`);
 
                 const plat = args[0]?.trim().toLowerCase();
@@ -266,6 +295,71 @@ async function iniciarBot() {
                     } else responder(`${pre}\n║ ❌ *ERROR*\n║ ${data.error || "Código no hallado."}\n${pie}`);
                 } catch (e) { responder(`${pre}\n║ ⚠️ Servidor caído o en pausa.\n${pie}`); }
                 return;
+            }
+
+            // ==========================================
+            // ACTIVAR FUNCIONES Y BASE DE DATOS
+            // ==========================================
+            if (comando === "activar") {
+                if (!esGrupo || !esAdmin) return;
+                if (args[0] === "bienvenida") {
+                    if (!db.bienvenida) db.bienvenida = {}; db.bienvenida[chat] = true; await guardarDB();
+                    return responder(`${pre}\n║ ✅ Bienvenida ACTIVADA.\n${pie}`);
+                }
+                if (args[0] === "despedida") {
+                    if (!db.despedida) db.despedida = {}; db.despedida[chat] = true; await guardarDB();
+                    return responder(`${pre}\n║ ✅ Despedida ACTIVADA.\n${pie}`);
+                }
+                // Si solo pone .activar (DB normal)
+                if (!db[chat]) db[chat] = { comandos: {} };
+                await guardarDB();
+                return responder(`${pre}\n║ ✅ *DB INICIADA*\n║ Ya puedes usar .set en el grupo.\n${pie}`);
+            }
+
+            if (comando === "desactivar") {
+                if (!esGrupo || !esAdmin) return;
+                if (args[0] === "bienvenida") {
+                    if (!db.bienvenida) db.bienvenida = {}; db.bienvenida[chat] = false; await guardarDB();
+                    return responder(`${pre}\n║ ⛔ Bienvenida DESACTIVADA.\n${pie}`);
+                }
+                if (args[0] === "despedida") {
+                    if (!db.despedida) db.despedida = {}; db.despedida[chat] = false; await guardarDB();
+                    return responder(`${pre}\n║ ⛔ Despedida DESACTIVADA.\n${pie}`);
+                }
+            }
+
+            // ==========================================
+            // COMANDOS LOCALES (.SET) AISLADOS
+            // ==========================================
+            if (comando === "set" && esAdmin) {
+                const nCmd = args.shift()?.toLowerCase();
+                if (!nCmd || !args.length) return responder(`${pre}\n║ ⚠️️ Uso: .set [nombre] [texto]\n${pie}`);
+                if (esGrupo && !db[chat]) return responder(`${pre}\n║ ⛔ Activa la DB con .activar\n${pie}`);
+                
+                if (esGrupo) {
+                    if (!db[chat].comandos) db[chat].comandos = {};
+                    db[chat].comandos[nCmd] = args.join(" ");
+                } else { db.comandos[nCmd] = args.join(" "); }
+                
+                await guardarDB();
+                return responder(`${pre}\n║ ✅ Comando .${nCmd} guardado.\n${pie}`);
+            }
+
+            if (comando === "del" && esAdmin) {
+                const nCmd = args[0]?.toLowerCase();
+                if (esGrupo && db[chat]?.comandos && db[chat].comandos[nCmd]) delete db[chat].comandos[nCmd];
+                else if (!esGrupo && db.comandos[nCmd]) delete db.comandos[nCmd];
+                await guardarDB();
+                return responder(`${pre}\n║ 🗑️ Comando eliminado.\n${pie}`);
+            }
+
+            let respCmd = null;
+            if (esGrupo && db[chat]?.comandos && db[chat].comandos[comando]) respCmd = db[chat].comandos[comando];
+            else if (db.comandos[comando]) respCmd = db.comandos[comando]; 
+            
+            if (respCmd) {
+                if (respCmd.includes("╔═════")) return responder(respCmd);
+                return responder(`╔══════════════════════════╗\n║ 💡 *INFORMACIÓN*\n╠══════════════════════════╣\n║ ${respCmd}\n╚══════════════════════════╝`);
             }
 
             // ==========================================
@@ -308,6 +402,7 @@ async function iniciarBot() {
                 return;
             }
 
+            // COMANDO .N (ANUNCIO INVISIBLE)
             if (comando === "n") {
                 if (!esGrupo || !esAdmin) return;
                 let txtMsg = args.join(" ");
@@ -365,57 +460,6 @@ async function iniciarBot() {
                 msgTag += `╚══════════════════════════╝`;
                 await sock.sendMessage(chat, { text: msgTag, mentions: menciones });
                 return;
-            }
-
-            // ==========================================
-            // BASE DE DATOS LOCAL (.SET) - CAJONES AISLADOS
-            // ==========================================
-            if (comando === "activar") {
-                if (!esGrupo || !esAdmin) return;
-                if (!db[chat]) db[chat] = { comandos: {} };
-                await guardarDB();
-                return responder(`${pre}\n║ ✅ *DB INICIADA*\n║ Ya puedes usar .set en el grupo.\n${pie}`);
-            }
-
-            if (comando === "set" && esAdmin) {
-                const nCmd = args.shift()?.toLowerCase();
-                if (!nCmd || !args.length) return responder(`${pre}\n║ ⚠️ Uso: .set [nombre] [texto]\n${pie}`);
-                if (esGrupo && !db[chat]) return responder(`${pre}\n║ ⛔ Activa la DB con .activar\n${pie}`);
-                
-                // AISLAMIENTO: Guarda en el cajón del grupo, o en el cajón global si es por privado
-                if (esGrupo) {
-                    if (!db[chat].comandos) db[chat].comandos = {};
-                    db[chat].comandos[nCmd] = args.join(" ");
-                } else {
-                    db.comandos[nCmd] = args.join(" "); 
-                }
-                
-                await guardarDB();
-                return responder(`${pre}\n║ ✅ Comando .${nCmd} guardado.\n${pie}`);
-            }
-
-            if (comando === "del" && esAdmin) {
-                const nCmd = args[0]?.toLowerCase();
-                if (esGrupo && db[chat]?.comandos && db[chat].comandos[nCmd]) {
-                    delete db[chat].comandos[nCmd];
-                } else if (!esGrupo && db.comandos[nCmd]) {
-                    delete db.comandos[nCmd];
-                }
-                await guardarDB();
-                return responder(`${pre}\n║ 🗑️ Comando eliminado.\n${pie}`);
-            }
-
-            // LECTOR INTELIGENTE DE COMANDOS
-            let respCmd = null;
-            if (esGrupo && db[chat]?.comandos && db[chat].comandos[comando]) {
-                respCmd = db[chat].comandos[comando]; // Lee primero el del grupo
-            } else if (db.comandos[comando]) {
-                respCmd = db.comandos[comando]; // Si no existe en el grupo, busca en el global
-            }
-            
-            if (respCmd) {
-                if (respCmd.includes("╔═════")) return responder(respCmd);
-                return responder(`╔══════════════════════════╗\n║ 💡 *INFORMACIÓN*\n╠══════════════════════════╣\n║ ${respCmd}\n╚══════════════════════════╝`);
             }
 
             // ==========================================
@@ -492,21 +536,16 @@ async function iniciarBot() {
                 let target = m.message.extendedTextMessage?.contextInfo?.participant || (m.message.extendedTextMessage?.contextInfo?.mentionedJid ? m.message.extendedTextMessage.contextInfo.mentionedJid[0] : null);
                 let tag = target ? `@${target.split("@")[0]}` : "este usuario";
                 
-                const isps = ["Telmex (Debe 2 meses)", "Totalplay (Amenaza cancelar)", "Megacable (Robando WiFi)", "Izzi (Con cortes)", "Starlink (Es prestado)"];
-                const locs = ["Ecatepec, Edomex", "San Pedro Garza García", "Tepito, CDMX", "Zapopan, Jalisco", "Culiacán, Sinaloa"];
-                const devices = ["Alcatel con pantalla rota", "iPhone 15 Pro Max (En abonos)", "Samsung Galaxy J7", "Xiaomi (A punto de explotar)"];
-                const secrets = ["Buscó: 'cómo volver con mi ex'", "Debe $500 en la tienda", "Escucha a Bad Bunny a escondidas", "Tiene fotos vergonzosas"];
+                const isps = ["Telmex", "Totalplay", "Megacable", "Izzi", "Starlink"];
+                const locs = ["Ecatepec", "Monterrey", "CDMX", "Guadalajara", "Culiacán"];
+                const devices = ["Alcatel", "iPhone 15", "Samsung J7", "Xiaomi"];
+                const secrets = ["Buscó: 'volver con mi ex'", "Debe $500", "Escucha a Bad Bunny", "Fotos vergonzosas"];
                 
                 const ip = `${Math.floor(Math.random()*255)}.${Math.floor(Math.random()*255)}.${Math.floor(Math.random()*255)}.${Math.floor(Math.random()*255)}`;
                 const call = await sock.sendMessage(chat, { text: `${pre}\n║ ☠️ Rastreando IP de ${tag}...\n${pie}`, mentions: target ? [target] : [] });
                 
                 setTimeout(async () => {
-                    const ispInfo = isps[Math.floor(Math.random() * isps.length)];
-                    const locInfo = locs[Math.floor(Math.random() * locs.length)];
-                    const devInfo = devices[Math.floor(Math.random() * devices.length)];
-                    const secInfo = secrets[Math.floor(Math.random() * secrets.length)];
-                    
-                    await sock.sendMessage(chat, { edit: call.key, text: `╔══════════════════════════╗\n║ ☠️ *DOXEO COMPLETADO*\n╠══════════════════════════╣\n║ 👤 Objetivo: ${tag}\n║ 📡 IP: ${ip}\n║ 📍 Ubicación: ${locInfo}\n║ 🌐 WiFi: ${ispInfo}\n║ 📱 Dispositivo: ${devInfo}\n║ 💳 Tarjeta: 4152 **** **** ${Math.floor(Math.random()*9000)+1000}\n║\n║ 🕵️‍♂️ *Secreto expuesto:*\n║ › ${secInfo}\n╚══════════════════════════╝`, mentions: target ? [target] : [] });
+                    await sock.sendMessage(chat, { edit: call.key, text: `╔══════════════════════════╗\n║ ☠️ *DOXEO COMPLETADO*\n╠══════════════════════════╣\n║ 👤 Objetivo: ${tag}\n║ 📡 IP: ${ip}\n║ 📍 Ciudad: ${locs[Math.floor(Math.random()*locs.length)]}\n║ 🌐 WiFi: ${isps[Math.floor(Math.random()*isps.length)]}\n║ 📱 Celular: ${devices[Math.floor(Math.random()*devices.length)]}\n║ 💳 Tarjeta: 4152 **** ${Math.floor(Math.random()*9000)+1000}\n║\n║ 🕵️‍♂️ *Secreto:*\n║ › ${secrets[Math.floor(Math.random()*secrets.length)]}\n╚══════════════════════════╝`, mentions: target ? [target] : [] });
                 }, 3000);
                 return;
             }
@@ -530,12 +569,11 @@ async function iniciarBot() {
 
             if (comando === "piropo") {
                 const piropos = ["Si la belleza fuera delito, yo te daría cadena perpetua. 😘", "¿Crees en el amor a primera vista o vuelvo a pasar? 😉", "No soy donante de órganos, pero te doy mi corazón. ❤️", "Quien fuera sol para darte todo el día. ☀️", "Me gustas más que dormir hasta tarde. 😴", "Estás como para invitarte a comer taquitos. 🌮"];
-                const random = piropos[Math.floor(Math.random() * piropos.length)];
-                return responder(`${pre}\n║ 😏 ${random}\n${pie}`);
+                return responder(`${pre}\n║ 😏 ${piropos[Math.floor(Math.random() * piropos.length)]}\n${pie}`);
             }
 
             // ==========================================
-            // MENÚ PRINCIPAL Y SUBMENÚS
+            // MENÚ PRINCIPAL 100% LIMPIO PARA CLIENTES
             // ==========================================
             if (comando === "menu" || comando === "help") {
                 const fch = new Date().toLocaleString('es-MX', { timeZone: 'America/Mexico_City' });
@@ -557,15 +595,13 @@ async function iniciarBot() {
 ║  ├ .n [texto] - Anuncio
 ║  ├ .kick [@user]
 ║  ├ .link / .tagall
-║  └ .activar - Iniciar Bot
+║  ├ .activar - Iniciar Bot
+║  ├ .activar bienvenida
+║  └ .activar despedida
 ║
 ║ 🎮 ENTRETENIMIENTO
 ║  └ .juegos - Ver catálogo
 ╚══════════════════════════╝`;
-                
-                if (isCreator) {
-                    menuTxt += `\n\n╔══════════════════════════╗\n║ 👑 *ZONA CREADOR*\n╠══════════════════════════╣\n║  ├ .listagrupos\n║  ├ .licencia [días] [num]\n║  ├ .activarpin [num]\n║  ├ .addpin [@user]\n║  ├ .delpin [@user]\n║  └ .nube (Status Nube)\n╚══════════════════════════╝`;
-                }
                 
                 let imgUrl = "https://i.imgur.com/OFOwV0Y.jpeg"; 
                 try {
