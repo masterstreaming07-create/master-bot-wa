@@ -11,23 +11,12 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwsfiLlP7ot1DSHiyLfBdXEMI_6sbt9fD0MXxynwGqPG-HDZPpTLiWffxzrFFLP5Nrl/exec";
 
-// ☁️ CAJA FUERTE EN LA NUBE (FIREBASE)
+// ☁️ CAJA FUERTE EN LA NUBE
 const FIREBASE_URL = "https://masterbot-cd954-default-rtdb.firebaseio.com/database.json";
 
-let db = { 
-    comandos: {}, 
-    gruposComandos: {}, 
-    gruposOTP: {}, 
-    mapaGrupos: {}, 
-    licencias: {}, 
-    pinUsers: {}, 
-    tiendasActivas: {}, 
-    tiendasData: {}, 
-    creador: "", 
-    pausado: false 
-};
+let db = { comandos: {}, gruposOTP: {}, mapaGrupos: {}, licencias: {}, pinUsers: {}, creador: "", pausado: false };
 
-// CONEXIÓN A FIREBASE BLINDADA
+// CONEXIÓN A FIREBASE BLINDADA (No pierde datos al reiniciar)
 async function cargarDB() {
     return new Promise((resolve) => {
         https.get(FIREBASE_URL, (res) => {
@@ -38,19 +27,12 @@ async function cargarDB() {
                     const data = JSON.parse(body);
                     if (data && typeof data === 'object') {
                         db.comandos = data.comandos || {};
-                        db.gruposComandos = data.gruposComandos || {};
                         db.gruposOTP = data.gruposOTP || {};
                         db.mapaGrupos = data.mapaGrupos || {};
                         db.licencias = data.licencias || {};
                         db.pinUsers = data.pinUsers || {}; 
-                        db.tiendasActivas = data.tiendasActivas || {};
-                        db.tiendasData = data.tiendasData || {};
                         db.creador = data.creador || ""; 
-                        for (let key in data) {
-                            if (!['comandos', 'gruposComandos', 'gruposOTP', 'mapaGrupos', 'licencias', 'pinUsers', 'tiendasActivas', 'tiendasData', 'creador', 'pausado'].includes(key)) {
-                                db[key] = data[key];
-                            }
-                        }
+                        for (let key in data) if (!['comandos', 'gruposOTP', 'mapaGrupos', 'licencias', 'pinUsers', 'creador', 'pausado'].includes(key)) db[key] = data[key];
                     }
                     console.log("✅ Base de datos cargada desde la nube.");
                     resolve();
@@ -64,13 +46,7 @@ function guardarDB() {
     return new Promise((resolve) => {
         try {
             const dataStr = JSON.stringify(db);
-            const options = { 
-                method: 'PUT', 
-                headers: { 
-                    'Content-Type': 'application/json', 
-                    'Content-Length': Buffer.byteLength(dataStr) 
-                } 
-            };
+            const options = { method: 'PUT', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(dataStr) } };
             const req = https.request(FIREBASE_URL, options, (res) => {
                 res.on('data', () => {}); 
                 res.on('end', () => resolve(true));
@@ -98,7 +74,7 @@ app.get("/", async (req, res) => {
 app.listen(PORT, () => console.log(`Servidor en puerto ${PORT}`));
 
 // ==========================================
-// 2. DISEÑO VISUAL Y MAPA DE PINS OFICIALES
+// 2. DISEÑO VISUAL
 // ==========================================
 const pre = "╔══════════════════════════╗\n║ 👑 *MASTER PRO*\n╠══════════════════════════╣";
 const sep = "╠══════════════════════════╣";
@@ -113,68 +89,6 @@ function obtenerTextoMensaje(m) {
     if (msg.documentWithCaptionMessage) msg = msg.documentWithCaptionMessage.message;
     return (msg.conversation || msg.extendedTextMessage?.text || msg.imageMessage?.caption || msg.videoMessage?.caption || "").trim();
 }
-
-function asegurarTiendaGrupo(jid) {
-    if (!db.tiendasData) db.tiendasData = {};
-    if (!db.tiendasData[jid]) db.tiendasData[jid] = { usuarios: {}, productos: {} };
-    if (!db.tiendasData[jid].usuarios) db.tiendasData[jid].usuarios = {};
-    if (!db.tiendasData[jid].productos) db.tiendasData[jid].productos = {};
-}
-
-// 🔢 TUS PINES OFICIALES (EXCLUSIVOS PARA NETFLIX Y MAX)
-const MAPA_PINS = {
-    1: "1010",
-    2: "2002",
-    3: "0303",
-    4: "0004",
-    5: "5000",
-    6: "6006",
-    7: "7007"
-};
-
-// 🛒 CATÁLOGO MASTER-STREAMING OFICIAL
-const CATALOGO_BASE = {
-    "netflix": { nombre: "🃏 Netflix Perfil", precio: 50, dias: 30, garantia: 30, tipo: "cuenta" },
-    "netflixpriv": { nombre: "🃏 Netflix Privado", precio: 50, dias: 30, garantia: 30, tipo: "cuenta" },
-    "netflixcomp": { nombre: "🃏 Netflix Completa", precio: 240, dias: 30, garantia: 30, tipo: "cuenta" },
-    "disney": { nombre: "🥇 Disney ESPN Perfil", precio: 30, dias: 30, garantia: 30, tipo: "cuenta" },
-    "disneycomp": { nombre: "🥇 Disney ESPN Completa", precio: 199, dias: 30, garantia: 30, tipo: "cuenta" },
-    "max": { nombre: "🎭 Max Hulu Perfil", precio: 10, dias: 30, garantia: 30, tipo: "cuenta" },
-    "maxcomp": { nombre: "🎭 Max Hulu Completa", precio: 35, dias: 30, garantia: 30, tipo: "cuenta" },
-    "universal": { nombre: "🌎 Universal+ Perfil", precio: 10, dias: 30, garantia: 30, tipo: "cuenta" },
-    "universalcomp": { nombre: "🌎 Universal+ Completa", precio: 25, dias: 30, garantia: 30, tipo: "cuenta" },
-    "appletv": { nombre: "🍎 Apple TV Perfil", precio: 10, dias: 30, garantia: 30, tipo: "cuenta" },
-    "appletvcomp": { nombre: "🍎 Apple TV Completa", precio: 25, dias: 30, garantia: 30, tipo: "cuenta" },
-    "peacock": { nombre: "🎬 Peacock Perfil", precio: 10, dias: 30, garantia: 30, tipo: "cuenta" },
-    "peacockcomp": { nombre: "🎬 Peacock Completa", precio: 25, dias: 30, garantia: 30, tipo: "cuenta" },
-    "fox": { nombre: "⚽ Fox One Dispositivo", precio: 10, dias: 30, garantia: 30, tipo: "cuenta" },
-    "foxcomp": { nombre: "⚽ Fox One Completa", precio: 35, dias: 30, garantia: 30, tipo: "cuenta" },
-    "paramount": { nombre: "⭐ Paramount Perfil (1m)", precio: 10, dias: 30, garantia: 30, tipo: "cuenta" },
-    "paramountcomp": { nombre: "⭐ Paramount Completa (1m)", precio: 40, dias: 30, garantia: 30, tipo: "cuenta" },
-    "crunchy": { nombre: "🌸 Crunchyroll Perfil (1m)", precio: 10, dias: 30, garantia: 30, tipo: "cuenta" },
-    "crunchycomp": { nombre: "🌸 Crunchyroll Completa (1m)", precio: 40, dias: 30, garantia: 30, tipo: "cuenta" },
-    "vix": { nombre: "🔥 Vix Perfil (1m)", precio: 3, dias: 30, garantia: 30, tipo: "cuenta" },
-    "vixcomp": { nombre: "🔥 Vix Completa (1m)", precio: 10, dias: 30, garantia: 30, tipo: "cuenta" },
-    "vixanual": { nombre: "🔥 Vix Perfil (Anual)", precio: 10, dias: 365, garantia: 365, tipo: "cuenta" },
-    "vixanualcomp": { nombre: "🔥 Vix Completa (Anual)", precio: 35, dias: 365, garantia: 365, tipo: "cuenta" },
-    "spotify": { nombre: "🎼 Spotify Ind. (1m)", precio: 39, dias: 30, garantia: 30, tipo: "cuenta" },
-    "applemusic": { nombre: "🎼 Apple Music Ind. (1m)", precio: 20, dias: 30, garantia: 30, tipo: "cuenta" },
-    "deezer": { nombre: "🎼 Deezer Individual", precio: 5, dias: 30, garantia: 30, tipo: "cuenta" },
-    "deezerfam": { nombre: "🎼 Deezer Familiar", precio: 8, dias: 30, garantia: 30, tipo: "cuenta" },
-    "ytind": { nombre: "🔴 YouTube Ind. (A tus datos)", precio: 15, dias: 30, garantia: 30, tipo: "datos" },
-    "ytfam": { nombre: "🔴 YouTube Fam. (A tus datos)", precio: 25, dias: 30, garantia: 30, tipo: "datos" },
-    "canva1m": { nombre: "🖌 Canva Edu Pro (1 Mes)", precio: 1, dias: 30, garantia: 30, tipo: "invitacion" },
-    "canva2m": { nombre: "🖌 Canva Edu Pro (2 Meses)", precio: 2, dias: 60, garantia: 60, tipo: "invitacion" },
-    "canva3m": { nombre: "🖌 Canva Edu Pro (3 Meses)", precio: 3, dias: 90, garantia: 90, tipo: "invitacion" },
-    "canva6m": { nombre: "🖌 Canva Edu Pro (6 Meses)", precio: 6, dias: 180, garantia: 180, tipo: "invitacion" },
-    "canva12m": { nombre: "🖌 Canva Edu Pro (12 Meses)", precio: 12, dias: 365, garantia: 365, tipo: "invitacion" },
-    "canva24m": { nombre: "🖌 Canva Edu Pro (24 Meses)", precio: 24, dias: 730, garantia: 730, tipo: "invitacion" },
-    "canva36m": { nombre: "🖌 Canva Edu Pro (36 Meses)", precio: 36, dias: 1095, garantia: 1095, tipo: "invitacion" },
-    "canvaperm": { nombre: "🖌 Canva Edu Pro (Permanente)", precio: 60, dias: 365, garantia: 365, tipo: "invitacion" },
-    "officeanual": { nombre: "📚 Office 365 Anual (Compartida)", precio: 50, dias: 365, garantia: 365, tipo: "cuenta" },
-    "officeanualcomp": { nombre: "📚 Office 365 Anual (Completa)", precio: 150, dias: 365, garantia: 365, tipo: "cuenta" },
-    "capcut": { nombre: "🎥 CapCut Pro (Dispositivo)", precio: 25, dias: 30, garantia: 30, tipo: "cuenta" }
-};
 
 // ==========================================
 // 3. NÚCLEO Y PROCESADOR DE COMANDOS
@@ -206,7 +120,7 @@ async function iniciarBot() {
             const comando = args.shift().toLowerCase();
             const esGrupo = chat.endsWith("@g.us");
 
-            const responder = async (txt, mentions = []) => await sock.sendMessage(chat, { text: txt, mentions }, { quoted: m });
+            const responder = async (texto) => await sock.sendMessage(chat, { text: texto }, { quoted: m });
             const senderId = m.key.participant || chat;
 
             // ==========================================
@@ -216,7 +130,7 @@ async function iniciarBot() {
                 if (db.creador !== "" && db.creador !== senderId) return responder(`${pre}\n║ ⚠️ El bot ya tiene un dueño.\n${pie}`);
                 db.creador = senderId;
                 await guardarDB();
-                return responder(`╔══════════════════════════╗\n║ 👑 *CREADOR RECONOCIDO*\n╠══════════════════════════╣\n║ Se ha vinculado tu ID:\n║ ${senderId.split("@")[0]}\n║\n║ Tienes control absoluto.\n╚══════════════════════════╝`);
+                return responder(`╔══════════════════════════╗\n║ 👑 *CREADOR RECONOCIDO*\n╠══════════════════════════╣\n║ Se ha vinculado tu número:\n║ ${senderId.split("@")[0]}\n║\n║ Tienes control absoluto.\n╚══════════════════════════╝`);
             }
 
             const isCreator = (db.creador === senderId);
@@ -229,7 +143,7 @@ async function iniciarBot() {
                 esAdmin = senderObj?.admin === 'admin' || senderObj?.admin === 'superadmin' || isCreator;
             }
 
-            // SISTEMA DE LICENCIAS (BLOQUEADOR POR VENCIMIENTO)
+            // SISTEMA DE LICENCIAS (BLOQUEADOR)
             if (esGrupo && !isCreator && comando !== "menu" && comando !== "nube") {
                 const vencimiento = db.licencias?.[chat];
                 if (vencimiento && Date.now() > vencimiento) {
@@ -242,7 +156,7 @@ async function iniciarBot() {
             // ==========================================
             if (comando === "nube" && isCreator) {
                 const exito = await guardarDB();
-                if (exito) return responder(`╔══════════════════════════╗\n║ ☁️ *ESTADO DE LA NUBE*\n╠══════════════════════════╣\n║ ✅ Conexión Excelente.\n║ Tiendas, saldos y stocks están\n║ blindados en Firebase.\n╚══════════════════════════╝`);
+                if (exito) return responder(`╔══════════════════════════╗\n║ ☁️ *ESTADO DE LA NUBE*\n╠══════════════════════════╣\n║ ✅ Conexión Excelente.\n║ Tus comandos y stocks están\n║ blindados en Firebase.\n╚══════════════════════════╝`);
                 else return responder(`${pre}\n║ ⚠️ Problemas con Firebase.\n${pie}`);
             }
 
@@ -251,58 +165,35 @@ async function iniciarBot() {
                 let txt = `╔══════════════════════════╗\n║ 👑 *PANEL DE RENTAS*\n╠══════════════════════════╣\n`;
                 let i = 1; db.mapaGrupos = {}; 
                 for (const jid in grupos) {
-                    const pinActivo = db.gruposOTP?.[jid] ? "✅ SI" : "❌ NO";
-                    const tiendaActiva = db.tiendasActivas?.[jid] ? "🏪 SI" : "❌ NO";
+                    const pinActivo = db.gruposOTP[jid] ? "✅ SI" : "❌ NO";
                     let vencimiento = "Sin licencia";
-                    if (db.licencias?.[jid]) {
+                    if (db.licencias[jid]) {
                         const date = new Date(db.licencias[jid]);
-                        vencimiento = Date.now() > db.licencias[jid] ? "⚠️ VENCIDA" : date.toLocaleDateString('es-MX');
+                        vencimiento = Date.now() > db.licencias[jid] ? "⚠️️ VENCIDA" : date.toLocaleDateString('es-MX');
                     }
-                    txt += `║ *${i}.* ${grupos[jid].subject}\n║  ├ 🔑 PIN: ${pinActivo} | 🛒 Tienda: ${tiendaActiva}\n║  └ 📅 Vence: ${vencimiento}\n║\n`;
+                    txt += `║ *${i}.* ${grupos[jid].subject}\n║  ├ 🔑 PIN: ${pinActivo}\n║  └ 📅 Vence: ${vencimiento}\n║\n`;
                     db.mapaGrupos[i] = jid; i++;
                 }
-                txt += `╚══════════════════════════╝\n_Usa .licencia [días] [num]_\n_Usa .activartienda [num]_\n_Usa .activarpin [num]_`;
+                txt += `╚══════════════════════════╝\n_Usa .licencia [días] [num]_\n_Usa .activarpin [num]_`;
                 await guardarDB();
                 return responder(txt);
             }
 
+            // ACTIVACIÓN REMOTA
             if (comando === "licencia" && isCreator) {
                 const dias = parseInt(args[0]); const num = args[1];
                 if (!dias || !num) return responder(`${pre}\n║ ⚠️ Uso: .licencia [días] [num]\n${pie}`);
                 const jid = db.mapaGrupos?.[num]; if (!jid) return responder(`${pre}\n║ ⚠️ Grupo inválido.\n${pie}`);
                 
                 db.licencias[jid] = Date.now() + (dias * 24 * 60 * 60 * 1000);
-                if (!db.gruposComandos[jid]) db.gruposComandos[jid] = {};
+                if (!db[jid]) db[jid] = { comandos: {} }; 
                 await guardarDB();
                 
                 try { await sock.sendMessage(jid, { text: `╔══════════════════════════╗\n║ 🤖 *SISTEMA ACTIVADO*\n╠══════════════════════════╣\n║ ✅ El Creador ha activado\n║ este bot remotamente.\n║ 📅 Licencia: ${dias} días.\n║\n║ Ya pueden usar .menu\n╚══════════════════════════╝` }); } catch(e) {}
                 return responder(`${pre}\n║ ✅ *LICENCIA ACTIVADA*\n║ Grupo ${num} tiene ${dias} días.\n║ (El bot ya avisó allá).\n${pie}`);
             }
 
-            if (comando === "activartienda" && isCreator) {
-                const num = args[0];
-                const jid = num ? db.mapaGrupos?.[num] : (esGrupo ? chat : null);
-                if (!jid) return responder(`${pre}\n║ ⚠️ Uso: .activartienda [num_grupo]\n${pie}`);
-                
-                if (!db.tiendasActivas) db.tiendasActivas = {};
-                db.tiendasActivas[jid] = true;
-                asegurarTiendaGrupo(jid);
-                await guardarDB();
-
-                try { await sock.sendMessage(jid, { text: `╔══════════════════════════╗\n║ 🏪 *TIENDA VIRTUAL ACTIVA*\n╠══════════════════════════╣\n║ ✅ El módulo de tienda y\n║ entregas automáticas ha sido\n║ habilitado en este grupo.\n║\n║ Usa *.tienda* o *.guiatienda*\n╚══════════════════════════╝` }); } catch(e) {}
-                return responder(`${pre}\n║ ✅ *TIENDA HABILITADA*\n║ Grupo activado con éxito.\n${pie}`);
-            }
-
-            if (comando === "desactivartienda" && isCreator) {
-                const num = args[0];
-                const jid = num ? db.mapaGrupos?.[num] : (esGrupo ? chat : null);
-                if (!jid) return responder(`${pre}\n║ ⚠️ Uso: .desactivartienda [num_grupo]\n${pie}`);
-                
-                if (db.tiendasActivas) db.tiendasActivas[jid] = false;
-                await guardarDB();
-                return responder(`${pre}\n║ ⛔ *TIENDA DESACTIVADA*\n║ El módulo fue apagado en ese grupo.\n${pie}`);
-            }
-
+            // GESTIÓN DE PERMISOS PIN GENERALES
             if (comando === "activarpin" && isCreator) {
                 const num = args[0]; const jid = db.mapaGrupos?.[num]; if (!jid) return;
                 db.gruposOTP[jid] = true; await guardarDB();
@@ -316,326 +207,69 @@ async function iniciarBot() {
             }
 
             // ==========================================
-            // 🏪 SISTEMA DE TIENDA PRO
-            // ==========================================
-            const comandosTienda = ["tienda", "catalogo", "misaldo", "saldo", "perfil", "comprar", "registrar", "deluser", "recargar", "dar", "quitar", "crearprod", "delprod", "addstock", "vaciarstock", "guiatienda", "iniciarcatalogo"];
-            
-            if (comandosTienda.includes(comando)) {
-                if (!esGrupo) return responder(`${pre}\n║ ⚠️ La tienda opera dentro de grupos.\n${pie}`);
-                if (!db.tiendasActivas?.[chat] && !isCreator) {
-                    return responder(`╔══════════════════════════╗\n║ ⛔ *TIENDA INACTIVA*\n╠══════════════════════════╣\n║ Este grupo no tiene activo\n║ el módulo de Tienda Virtual.\n║ Contacta al Creador.\n╚══════════════════════════╝`);
-                }
-                asegurarTiendaGrupo(chat);
-                const tGrupo = db.tiendasData[chat];
-
-                if (comando === "guiatienda") {
-                    if (!esAdmin) return;
-                    return responder(`╔══════════════════════════╗\n║ 🏪 *CONTROL DE TIENDA PRO*\n╠══════════════════════════╣\n║ ⚡ *CARGAR CATÁLOGO OFICIAL*\n║ └ *.iniciarcatalogo*\n║\n║ 📦 *METER STOCK*\n║ ├ Con PIN (Netflix/Max): .addstock netflix c:p 5\n║ └ Sin PIN (Disney, Vix): .addstock disney c:p 5\n╚══════════════════════════╝`);
-                }
-
-                if (comando === "iniciarcatalogo") {
-                    if (!esAdmin) return;
-                    for (const cod in CATALOGO_BASE) {
-                        const existente = tGrupo.productos[cod]?.cuentas || [];
-                        tGrupo.productos[cod] = {
-                            nombre: CATALOGO_BASE[cod].nombre,
-                            precio: CATALOGO_BASE[cod].precio,
-                            dias: CATALOGO_BASE[cod].dias,
-                            garantia: CATALOGO_BASE[cod].garantia,
-                            tipo: CATALOGO_BASE[cod].tipo,
-                            cuentas: existente
-                        };
-                    }
-                    await guardarDB();
-                    return responder(`╔══════════════════════════╗\n║ 🚀 *CATÁLOGO OFICIAL LISTO*\n╠══════════════════════════╣\n║ ✅ Servicios cargados con éxito.\n║ Usa *.tienda* para revisarlo.\n╚══════════════════════════╝`);
-                }
-
-                if (comando === "registrar") {
-                    if (!esAdmin) return responder(`${pre}\n║ ⛔ Solo Administradores.\n${pie}`);
-                    let target = m.message.extendedTextMessage?.contextInfo?.participant || m.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-                    if (!target) return responder(`${pre}\n║ ⚠️ Etiqueta al cliente.\n║ Ej: .registrar @user Juan\n${pie}`);
-                    
-                    const nombre = args.filter(a => !a.startsWith("@")).join(" ") || "Cliente VIP";
-                    if (!tGrupo.usuarios[target]) {
-                        tGrupo.usuarios[target] = { nombre: nombre, saldo: 0 };
-                    } else {
-                        tGrupo.usuarios[target].nombre = nombre;
-                    }
-                    await guardarDB();
-                    return responder(`╔══════════════════════════╗\n║ ✅ *CLIENTE REGISTRADO*\n╠══════════════════════════╣\n║ 👤 Usuario: @${target.split("@")[0]}\n║ 🏷️ Nombre: ${nombre}\n║ 💰 Saldo: $${tGrupo.usuarios[target].saldo} MXN\n╚══════════════════════════╝`, [target]);
-                }
-
-                if (comando === "deluser") {
-                    if (!esAdmin) return responder(`${pre}\n║ ⛔ Solo Administradores.\n${pie}`);
-                    let target = m.message.extendedTextMessage?.contextInfo?.participant || m.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-                    if (!target || !tGrupo.usuarios[target]) return responder(`${pre}\n║ ⚠️ Usuario no encontrado.\n${pie}`);
-                    delete tGrupo.usuarios[target];
-                    await guardarDB();
-                    return responder(`${pre}\n║ 🗑️ Cliente eliminado de la tienda.\n${pie}`);
-                }
-
-                if (comando === "recargar" || comando === "dar" || comando === "quitar") {
-                    if (!esAdmin) return responder(`${pre}\n║ ⛔ Solo el Admin autoriza saldo.\n${pie}`);
-                    let target = m.message.extendedTextMessage?.contextInfo?.participant || m.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-                    if (!target) return responder(`${pre}\n║ ⚠️ Etiqueta o responde al cliente.\n${pie}`);
-                    
-                    if (!tGrupo.usuarios[target]) return responder(`${pre}\n║ ⚠️ Regístralo primero con .registrar\n${pie}`);
-                    const monto = parseFloat(args.find(a => !a.startsWith("@") && !isNaN(parseFloat(a))));
-                    if (!monto || monto <= 0) return responder(`${pre}\n║ ⚠️ Ingresa un monto válido.\n${pie}`);
-
-                    if (comando === "quitar") tGrupo.usuarios[target].saldo = Math.max(0, tGrupo.usuarios[target].saldo - monto);
-                    else tGrupo.usuarios[target].saldo += monto;
-                    await guardarDB();
-                    return responder(`╔══════════════════════════╗\n║ 💳 *BILLETERA ACTUALIZADA*\n╠══════════════════════════╣\n║ 👤 Cliente: *${tGrupo.usuarios[target].nombre}*\n║ 💰 Nuevo Saldo: *$${tGrupo.usuarios[target].saldo} MXN*\n╚══════════════════════════╝`, [target]);
-                }
-
-                if (comando === "crearprod") {
-                    if (!esAdmin) return responder(`${pre}\n║ ⛔ Solo Administradores.\n${pie}`);
-                    const cod = args.shift()?.toLowerCase();
-                    const precio = parseFloat(args.shift());
-                    let dias = 30;
-                    if (args[0] && !isNaN(parseInt(args[0]))) dias = parseInt(args.shift());
-                    const nombre = args.join(" ");
-                    if (!cod || isNaN(precio) || !nombre) return responder(`${pre}\n║ ⚠️ Uso: .crearprod [cod] [$] [días] [Nombre]\n${pie}`);
-                    
-                    let tipo = "cuenta";
-                    if (nombre.toLowerCase().includes("canva") || nombre.toLowerCase().includes("invitacion")) tipo = "invitacion";
-                    if (nombre.toLowerCase().includes("datos") || nombre.toLowerCase().includes("youtube")) tipo = "datos";
-
-                    tGrupo.productos[cod] = { nombre, precio, dias, garantia: dias, tipo, cuentas: tGrupo.productos[cod]?.cuentas || [] };
-                    await guardarDB();
-                    return responder(`${pre}\n║ ✅ Producto *${cod}* guardado.\n${pie}`);
-                }
-
-                if (comando === "addstock") {
-                    if (!esAdmin) return responder(`${pre}\n║ ⛔ Solo Administradores.\n${pie}`);
-                    const cod = args.shift()?.toLowerCase();
-                    if (!cod || !tGrupo.productos[cod]) return responder(`${pre}\n║ ⚠️ Código no existe. Usa .iniciarcatalogo\n${pie}`);
-
-                    let numPerfiles = 1;
-                    if (args.length > 1 && /^\d+$/.test(args[args.length - 1])) {
-                        numPerfiles = parseInt(args.pop());
-                    }
-                    const datosCuenta = args.join(" ");
-                    if (!datosCuenta) return responder(`${pre}\n║ ⚠️ Uso: .addstock [cod] [correo:pass] [perfiles]\n${pie}`);
-
-                    if (!tGrupo.productos[cod].cuentas) tGrupo.productos[cod].cuentas = [];
-                    const usaPins = cod.includes("net") || cod.includes("max");
-
-                    if (numPerfiles > 1) {
-                        for (let i = 1; i <= numPerfiles; i++) {
-                            const pinAsignado = MAPA_PINS[i] || `${i}00${i}`;
-                            const infoPerfil = usaPins ? `👤 *Perfil:* P${i} | 🔢 *PIN:* ${pinAsignado}` : `👤 *Perfil:* P${i}`;
-                            tGrupo.productos[cod].cuentas.push(`${datosCuenta}\n║ ${infoPerfil}`);
-                        }
-                    } else {
-                        const infoUnica = usaPins ? `👤 *Perfil:* P1 | 🔢 *PIN:* ${MAPA_PINS[1]}` : `👤 *Entrega:* Cuenta completa`;
-                        tGrupo.productos[cod].cuentas.push(`${datosCuenta}\n║ ${infoUnica}`);
-                    }
-
-                    await guardarDB();
-                    try { await sock.sendMessage(chat, { delete: m.key }); } catch (e) {}
-                    return await sock.sendMessage(chat, { text: `╔══════════════════════════╗\n║ 🔐 *STOCK CARGADO*\n╠══════════════════════════╣\n║ 📺 ${tGrupo.productos[cod].nombre}\n║ 📦 Disponibles: *${tGrupo.productos[cod].cuentas.length}*\n╚══════════════════════════╝` });
-                }
-
-                if (comando === "vaciarstock") {
-                    if (!esAdmin) return responder(`${pre}\n║ ⛔ Solo Administradores.\n${pie}`);
-                    const cod = args[0]?.toLowerCase();
-                    if (!cod || !tGrupo.productos[cod]) return responder(`${pre}\n║ ⚠️ Producto no encontrado.\n${pie}`);
-                    tGrupo.productos[cod].cuentas = [];
-                    await guardarDB();
-                    return responder(`${pre}\n║ 🔴 Stock de *${tGrupo.productos[cod].nombre}* vaciado.\n${pie}`);
-                }
-
-                if (comando === "delprod") {
-                    if (!esAdmin) return responder(`${pre}\n║ ⛔ Solo Administradores.\n${pie}`);
-                    const cod = args[0]?.toLowerCase();
-                    if (!cod || !tGrupo.productos[cod]) return responder(`${pre}\n║ ⚠️ Producto no encontrado.\n${pie}`);
-                    delete tGrupo.productos[cod];
-                    await guardarDB();
-                    return responder(`${pre}\n║ 🗑️ Producto eliminado.\n${pie}`);
-                }
-
-                if (comando === "tienda" || comando === "catalogo") {
-                    const prods = Object.keys(tGrupo.productos);
-                    if (prods.length === 0) return responder(`${pre}\n║ 🏪 Catálogo vacío. Usa .iniciarcatalogo\n${pie}`);
-                    let txt = `╔══════════════════════════╗\n║ 🚀 *MASTER-STREAMING*\n║ 📍 *${groupMetadata.subject}*\n╠══════════════════════════╣\n`;
-                    for (const cod of prods) {
-                        const p = tGrupo.productos[cod];
-                        const cant = p.cuentas?.length || 0;
-                        let estado = p.tipo === "invitacion" ? `📩 *Por Invitación*` : (p.tipo === "datos" ? `🔑 *A tus datos*` : (cant > 0 ? `🟢 *Stock: ${cant}*` : `🔴 *Agotado*`));
-                        txt += `║ ${p.nombre} — *$${p.precio}*\n║  ├ ${estado}\n║  └ 🛒 *.comprar ${cod}*\n║\n`;
-                    }
-                    txt += `╚══════════════════════════╝`;
-                    return responder(txt);
-                }
-
-                if (comando === "misaldo" || comando === "saldo" || comando === "perfil") {
-                    const u = tGrupo.usuarios[senderId];
-                    if (!u) return responder(`${pre}\n║ ⚠️ No estás registrado en la tienda.\n${pie}`);
-                    return responder(`╔══════════════════════════╗\n║ 💳 *MI BILLETERA*\n╠══════════════════════════╣\n║ 👤 Cliente: *${u.nombre}*\n║ 💰 Saldo: *$${u.saldo} MXN*\n╚══════════════════════════╝`);
-                }
-
-                if (comando === "comprar") {
-                    const u = tGrupo.usuarios[senderId];
-                    if (!u) return responder(`${pre}\n║ ⛔ No estás registrado para comprar.\n${pie}`);
-                    const cod = args.shift()?.toLowerCase();
-                    const datosExtra = args.join(" ");
-                    if (!cod) return responder(`${pre}\n║ ⚠️ Uso: .comprar [codigo]\n${pie}`);
-
-                    const p = tGrupo.productos[cod];
-                    if (!p) return responder(`${pre}\n║ ❌ Producto no encontrado.\n${pie}`);
-                    if (u.saldo < p.precio) return responder(`${pre}\n║ ❌ Saldo insuficiente ($${u.saldo} MXN).\n${pie}`);
-
-                    const diasVigencia = p.dias || 30;
-                    const diasGarantia = p.garantia || diasVigencia;
-                    const fInicioStr = new Date().toLocaleDateString('es-MX', { timeZone: 'America/Mexico_City' });
-                    const fFinStr = new Date(Date.now() + (diasVigencia * 24 * 60 * 60 * 1000)).toLocaleDateString('es-MX', { timeZone: 'America/Mexico_City' });
-
-                    if (p.tipo === "datos") {
-                        if (!datosExtra.includes("@") || !datosExtra.includes(":")) {
-                            return responder(`╔══════════════════════════╗\n║ 🔑 *DATOS REQUERIDOS*\n╠══════════════════════════╣\n║ Escribe tu correo y contraseña:\n║ *.comprar ${cod} correo@gmail.com:Clave*\n╚══════════════════════════╝`);
-                        }
-                        try { await sock.sendMessage(chat, { delete: m.key }); } catch (e) {}
-                        u.saldo -= p.precio;
-                        await guardarDB();
-                        if (db.creador) {
-                            try { await sock.sendMessage(db.creador, { text: `🔴 *PEDIDO DATOS:* ${p.nombre} | Cliente: ${u.nombre} | Datos: ${datosExtra}` }); } catch(e) {}
-                        }
-                        return await sock.sendMessage(chat, { text: `✅ Pedido de *${p.nombre}* recibido. Tus datos fueron enviados al Admin en privado. Saldo restante: $${u.saldo} MXN` });
-                    }
-
-                    if (p.tipo === "invitacion") {
-                        if (!datosExtra.includes("@")) return responder(`${pre}\n║ ⚠️ Escribe tu correo para la invitación.\n${pie}`);
-                        u.saldo -= p.precio;
-                        await guardarDB();
-                        if (db.creador) {
-                            try { await sock.sendMessage(db.creador, { text: `🔔 *INVITACIÓN CANVA:* ${p.nombre} | Correo: ${datosExtra}` }); } catch(e) {}
-                        }
-                        return responder(`✅ Solicitud de *${p.nombre}* pagada. Se enviará a: ${datosExtra}. Saldo: $${u.saldo} MXN`);
-                    }
-
-                    const cant = p.cuentas?.length || 0;
-                    if (cant === 0) return responder(`${pre}\n║ 🔴 Producto agotado (Sobre pedido).\n${pie}`);
-
-                    u.saldo -= p.precio;
-                    const cuentaEntregada = p.cuentas.shift();
-                    await guardarDB();
-
-                    const ficha = `╔══════════════════════════╗\n║ 🎉 *FICHA DE ENTREGA*\n╠══════════════════════════╣\n║ 📺 ${p.nombre}\n║ 👤 ${u.nombre}\n╠══════════════════════════╣\n║ 🔐 *ACCESO:*\n║ ${cuentaEntregada}\n╠══════════════════════════╣\n║ 🛑 Vence: ${fFinStr}\n║ 🛡️ Garantía: ${diasGarantia} días\n╚══════════════════════════╝`;
-
-                    try { await sock.sendMessage(senderId, { text: ficha }); } 
-                    catch (err) {
-                        u.saldo += p.precio;
-                        p.cuentas.unshift(cuentaEntregada);
-                        await guardarDB();
-                        return responder(`${pre}\n║ ⚠️ Mándame un "Hola" por privado primero para entregarte tu cuenta.\n${pie}`);
-                    }
-
-                    return responder(`✅ *¡Compra exitosa!* Ficha de *${p.nombre}* enviada a tu chat privado. Saldo restante: $${u.saldo} MXN`, [senderId]);
-                }
-            }
-
-            // ==========================================
-            // COMANDOS DE RESPUESTAS RÁPIDAS (AISLADOS POR GRUPO)
-            // ==========================================
-            if (comando === "activar") {
-                if (!esGrupo || !esAdmin) return;
-                if (!db.gruposComandos) db.gruposComandos = {};
-                if (!db.gruposComandos[chat]) db.gruposComandos[chat] = {};
-                await guardarDB();
-                return responder(`${pre}\n║ ✅ Base de comandos para este grupo activada y vinculada a la nube.\n${pie}`);
-            }
-
-            if (comando === "set" && esAdmin) {
-                const nCmd = args.shift()?.toLowerCase();
-                const contenido = args.join(" ");
-                if (!nCmd || !contenido) return responder(`${pre}\n║ ⚠️ Uso: .set [nombre] [texto]\n${pie}`);
-
-                if (esGrupo) {
-                    if (!db.gruposComandos) db.gruposComandos = {};
-                    if (!db.gruposComandos[chat]) db.gruposComandos[chat] = {};
-                    db.gruposComandos[chat][nCmd] = contenido;
-                } else {
-                    db.comandos[nCmd] = contenido;
-                }
-                await guardarDB();
-                return responder(`${pre}\n║ ✅ Comando .${nCmd} guardado en el cajón de este grupo en la nube.\n${pie}`);
-            }
-
-            if (comando === "del" && esAdmin) {
-                const nCmd = args[0]?.toLowerCase();
-                if (esGrupo && db.gruposComandos?.[chat]) {
-                    delete db.gruposComandos[chat][nCmd];
-                } else {
-                    delete db.comandos[nCmd];
-                }
-                await guardarDB();
-                return responder(`${pre}\n║ 🗑️ Comando eliminado.\n${pie}`);
-            }
-
-            // LECTOR AISLADO DE COMANDOS .SET POR GRUPO
-            let respCmd = null;
-            if (esGrupo && db.gruposComandos?.[chat] && db.gruposComandos[chat][comando]) {
-                respCmd = db.gruposComandos[chat][comando];
-            } else if (db.comandos[comando]) {
-                respCmd = db.comandos[comando];
-            }
-
-            if (respCmd) {
-                if (respCmd.includes("╔═════")) return responder(respCmd);
-                return responder(`╔══════════════════════════╗\n║ 💡 *INFORMACIÓN*\n╠══════════════════════════╣\n║ ${respCmd}\n╚══════════════════════════╝`);
-            }
-
-            // ==========================================
-            // GESTIÓN DE OPERADORES PIN Y OTROS MÓDULOS
+            // GESTIÓN DE OPERADORES PIN (EL CANDADO ESTRICTO)
             // ==========================================
             if (comando === "addpin" && isCreator) {
-                if (!esGrupo) return;
-                let target = m.message.extendedTextMessage?.contextInfo?.participant || m.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-                if (!target) return responder(`${pre}\n║ ⚠️ Etiqueta al operador.\n${pie}`);
+                if (!esGrupo) return responder(`${pre}\n║ ⚠️ Usa esto dentro del grupo.\n${pie}`);
+                let target = m.message.extendedTextMessage?.contextInfo?.participant || (m.message.extendedTextMessage?.contextInfo?.mentionedJid ? m.message.extendedTextMessage.contextInfo.mentionedJid[0] : null);
+                if (!target) return responder(`${pre}\n║ ⚠️ Etiqueta a la persona.\n║ Ej: .addpin @Cliente\n${pie}`);
+                
                 if (!db.pinUsers) db.pinUsers = {};
                 if (!db.pinUsers[chat]) db.pinUsers[chat] = [];
                 if (!db.pinUsers[chat].includes(target)) db.pinUsers[chat].push(target);
+                
                 await guardarDB();
-                return responder(`🔑 Operador @${target.split("@")[0]} autorizado para extraer PIN.`, [target]);
+                return responder(`╔══════════════════════════╗\n║ 🔑 *OPERADOR REGISTRADO*\n╠══════════════════════════╣\n║ @${target.split("@")[0]} ahora tiene\n║ licencia para usar el .pin\n╚══════════════════════════╝`, { mentions: [target] });
             }
 
             if (comando === "delpin" && isCreator) {
                 if (!esGrupo) return;
-                let target = m.message.extendedTextMessage?.contextInfo?.participant || m.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-                if (db.pinUsers?.[chat]) {
+                let target = m.message.extendedTextMessage?.contextInfo?.participant || (m.message.extendedTextMessage?.contextInfo?.mentionedJid ? m.message.extendedTextMessage.contextInfo.mentionedJid[0] : null);
+                if (!target) return;
+                
+                if (db.pinUsers && db.pinUsers[chat]) {
                     db.pinUsers[chat] = db.pinUsers[chat].filter(id => id !== target);
                     await guardarDB();
                 }
-                return responder(`🗑️ Operador revocado.`);
+                return responder(`╔══════════════════════════╗\n║ 🗑️ *LICENCIA REVOCADA*\n╠══════════════════════════╣\n║ @${target.split("@")[0]} ya no puede\n║ extraer códigos.\n╚══════════════════════════╝`, { mentions: [target] });
             }
 
+            // ==========================================
+            // EXTRACCIÓN OTP (CON VALIDACIÓN DE OPERADOR)
+            // ==========================================
             if (comando === "pin" || comando === "extraer") {
-                if (!esGrupo) return;
-                const autorizado = isCreator || (db.pinUsers?.[chat] && db.pinUsers[chat].includes(senderId));
-                if (!autorizado) return responder(`⛔ Solo el Creador y Operadores autorizados pueden usar .pin`);
-                if (!db.gruposOTP[chat] && !isCreator) return responder(`⛔ Grupo sin plan OTP.`);
+                if (!esGrupo) return responder(`${pre}\n║ ⛔ Solo funciona en grupos.\n${pie}`);
+                
+                // VERIFICAR SI TIENE LICENCIA DE OPERADOR O ES EL CREADOR
+                const autorizado = isCreator || (db.pinUsers && db.pinUsers[chat] && db.pinUsers[chat].includes(senderId));
+                
+                if (!autorizado) {
+                    return responder(`╔══════════════════════════╗\n║ ⛔ *ACCESO DENEGADO*\n╠══════════════════════════╣\n║ Solo el Creador y los\n║ Operadores autorizados\n║ pueden extraer códigos.\n╚══════════════════════════╝`);
+                }
+
+                if (!db.gruposOTP[chat] && !isCreator) return responder(`${pre}\n║ ⛔ *SERVICIO RESTRINGIDO*\n║ Tu grupo no tiene plan OTP.\n${pie}`);
 
                 const plat = args[0]?.trim().toLowerCase();
                 const corr = args[1]?.trim().toLowerCase();
                 const sub = args[2] ? args[2].trim().toLowerCase() : "4dig";
-                if (!plat || !corr?.includes("@")) return responder(`⚠️ Uso: .pin [plat] [correo]`);
+                if (!plat || !corr?.includes("@")) return responder(`${pre}\n║ ⚠️ Uso: .pin [plat] [correo]\n${pie}`);
 
-                await responder(`⏳ Extrayendo en vivo...`);
+                await responder(`${pre}\n║ ⏳ *Extrayendo en vivo...*\n${pie}`);
                 try {
                     const res = await fetch(`${APPS_SCRIPT_URL}?accion=extraer&plataforma=${encodeURIComponent(plat)}&correo=${encodeURIComponent(corr)}&subtipo=${encodeURIComponent(sub)}`);
                     const data = await res.json();
                     if (data?.ok) {
-                        return responder(`✅ *CÓDIGO RECIBIDO*\n📺 Servicio: ${data.type || plat.toUpperCase()}\n🔑 OTP: *${data.code}*${data.link ? `\n🔗 Hogar: ${data.link}` : ""}`, [], { quoted: m });
-                    } else {
-                        return responder(`❌ ${data.error || "Código no hallado."}`);
-                    }
-                } catch (e) { return responder(`⚠️ Error de conexión con el script.`); }
+                        let ok = `╔══════════════════════════╗\n║ ✅ *CÓDIGO RECIBIDO*\n╠══════════════════════════╣\n║ 📺 Servicio: ${data.type || plat.toUpperCase()}\n║ 🔑 OTP: *${data.code}*\n`;
+                        if (data.link) ok += `║ 🔗 Hogar: ${data.link}\n`;
+                        ok += `╚══════════════════════════╝`;
+                        await sock.sendMessage(chat, { text: ok }, { quoted: m });
+                    } else responder(`${pre}\n║ ❌ *ERROR*\n║ ${data.error || "Código no hallado."}\n${pie}`);
+                } catch (e) { responder(`${pre}\n║ ⚠️ Servidor caído o en pausa.\n${pie}`); }
+                return;
             }
 
             // ==========================================
-            // MÓDULO DE MODERACIÓN INTELIGENTE
+            // MODERACIÓN INTELIGENTE 
             // ==========================================
             if (comando === "cerrar" || comando === "abrir") {
                 if (!esGrupo || !esAdmin) return;
@@ -674,7 +308,6 @@ async function iniciarBot() {
                 return;
             }
 
-            // COMANDO .N (ANUNCIO 100% INVISIBLE)
             if (comando === "n") {
                 if (!esGrupo || !esAdmin) return;
                 let txtMsg = args.join(" ");
@@ -735,7 +368,58 @@ async function iniciarBot() {
             }
 
             // ==========================================
-            // MÓDULO DE ENTRETENIMIENTO Y JUEGOS
+            // BASE DE DATOS LOCAL (.SET) - CAJONES AISLADOS
+            // ==========================================
+            if (comando === "activar") {
+                if (!esGrupo || !esAdmin) return;
+                if (!db[chat]) db[chat] = { comandos: {} };
+                await guardarDB();
+                return responder(`${pre}\n║ ✅ *DB INICIADA*\n║ Ya puedes usar .set en el grupo.\n${pie}`);
+            }
+
+            if (comando === "set" && esAdmin) {
+                const nCmd = args.shift()?.toLowerCase();
+                if (!nCmd || !args.length) return responder(`${pre}\n║ ⚠️ Uso: .set [nombre] [texto]\n${pie}`);
+                if (esGrupo && !db[chat]) return responder(`${pre}\n║ ⛔ Activa la DB con .activar\n${pie}`);
+                
+                // AISLAMIENTO: Guarda en el cajón del grupo, o en el cajón global si es por privado
+                if (esGrupo) {
+                    if (!db[chat].comandos) db[chat].comandos = {};
+                    db[chat].comandos[nCmd] = args.join(" ");
+                } else {
+                    db.comandos[nCmd] = args.join(" "); 
+                }
+                
+                await guardarDB();
+                return responder(`${pre}\n║ ✅ Comando .${nCmd} guardado.\n${pie}`);
+            }
+
+            if (comando === "del" && esAdmin) {
+                const nCmd = args[0]?.toLowerCase();
+                if (esGrupo && db[chat]?.comandos && db[chat].comandos[nCmd]) {
+                    delete db[chat].comandos[nCmd];
+                } else if (!esGrupo && db.comandos[nCmd]) {
+                    delete db.comandos[nCmd];
+                }
+                await guardarDB();
+                return responder(`${pre}\n║ 🗑️ Comando eliminado.\n${pie}`);
+            }
+
+            // LECTOR INTELIGENTE DE COMANDOS
+            let respCmd = null;
+            if (esGrupo && db[chat]?.comandos && db[chat].comandos[comando]) {
+                respCmd = db[chat].comandos[comando]; // Lee primero el del grupo
+            } else if (db.comandos[comando]) {
+                respCmd = db.comandos[comando]; // Si no existe en el grupo, busca en el global
+            }
+            
+            if (respCmd) {
+                if (respCmd.includes("╔═════")) return responder(respCmd);
+                return responder(`╔══════════════════════════╗\n║ 💡 *INFORMACIÓN*\n╠══════════════════════════╣\n║ ${respCmd}\n╚══════════════════════════╝`);
+            }
+
+            // ==========================================
+            // ENTRETENIMIENTO Y JUEGOS COMPLETOS
             // ==========================================
             if (comando === "carrera") {
                 const msg = await sock.sendMessage(chat, { text: `${pre}\n║ 🏁 Preparando pista...\n${pie}` }, { quoted: m });
@@ -860,14 +544,10 @@ async function iniciarBot() {
 ║  📋 *Menú Principal*
 ║  📅 ${fch}
 ╠══════════════════════════╣
-║ 🏪 TIENDA AUTOMÁTICA
-║  ├ .tienda - Ver stock vivo
-║  ├ .misaldo - Mi billetera
-║  ├ .comprar [código]
-║  └ .guiatienda (Solo Admin)
-║
-║ 🛒 RESPUESTAS RÁPIDAS
-║  └ .set [cmd] [texto]
+║ 🛒 CATÁLOGO DE VENTAS
+║  ├ Crea tu propio catálogo
+║  ├ de forma fácil usando
+║  └ el comando: .set
 ║
 ║ 🔐 SISTEMA OTP
 ║  └ .pin [plat] [correo]
@@ -877,14 +557,14 @@ async function iniciarBot() {
 ║  ├ .n [texto] - Anuncio
 ║  ├ .kick [@user]
 ║  ├ .link / .tagall
-║  └ .activar - Iniciar DB
+║  └ .activar - Iniciar Bot
 ║
 ║ 🎮 ENTRETENIMIENTO
 ║  └ .juegos - Ver catálogo
 ╚══════════════════════════╝`;
                 
                 if (isCreator) {
-                    menuTxt += `\n\n╔══════════════════════════╗\n║ 👑 *ZONA CREADOR*\n╠══════════════════════════╣\n║  ├ .listagrupos\n║  ├ .licencia [días] [num]\n║  ├ .activartienda [num]\n║  ├ .desactivartienda [num]\n║  ├ .activarpin [num]\n║  ├ .addpin / .delpin [@user]\n║  └ .nube (Status Nube)\n╚══════════════════════════╝`;
+                    menuTxt += `\n\n╔══════════════════════════╗\n║ 👑 *ZONA CREADOR*\n╠══════════════════════════╣\n║  ├ .listagrupos\n║  ├ .licencia [días] [num]\n║  ├ .activarpin [num]\n║  ├ .addpin [@user]\n║  ├ .delpin [@user]\n║  └ .nube (Status Nube)\n╚══════════════════════════╝`;
                 }
                 
                 let imgUrl = "https://i.imgur.com/OFOwV0Y.jpeg"; 
